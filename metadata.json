@@ -1,0 +1,6 @@
+{
+  "name": "Peminjaman Inventaris Kantor",
+  "description": "Aplikasi manajemen peminjaman barang inventaris kantor lengkap dengan fitur dashboard statistik, QR Code, multi-item borrowing, pengembalian parsial, log audit, ekspor data, dan penampil kode sumber PHP Native MVC lengkap.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
