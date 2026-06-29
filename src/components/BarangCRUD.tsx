@@ -20,6 +20,12 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, categoryFilter]);
 
   // QR Code Print states
   const [qrPrintItem, setQrPrintItem] = useState<Barang | null>(null);
@@ -35,6 +41,7 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
 
   // Form states
   const [kodeBarang, setKodeBarang] = useState('');
+  const [nup, setNup] = useState('');
   const [namaBarang, setNamaBarang] = useState('');
   const [idKategori, setIdKategori] = useState<number>(1);
   const [merkTipe, setMerkTipe] = useState('');
@@ -74,6 +81,7 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
     setParsedItems([]);
     setExcelFileName('');
     setKodeBarang(OfficeInventoryDb.generateBarangCode());
+    setNup('');
     setNamaBarang('');
     if (categories.length > 0) {
       setIdKategori(categories[0].id_kategori);
@@ -94,6 +102,7 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
     setParsedItems([]);
     setExcelFileName('');
     setKodeBarang(b.kode_barang);
+    setNup(b.nup || '');
     setNamaBarang(b.nama_barang);
     setIdKategori(b.id_kategori);
     setMerkTipe(b.merk_tipe);
@@ -139,12 +148,14 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
       if (index !== -1) {
         currentList[index] = {
           ...currentList[index],
+          kode_barang: kodeBarang,
+          nup: nup,
           nama_barang: namaBarang,
           id_kategori: Number(idKategori),
           merk_tipe: merkTipe,
           lokasi_penyimpanan: lokasiPenyimpanan,
-          stok: Number(stok),
-          stok_minimum: Number(stokMinimum),
+          stok: statusKetersediaan === 'Dipinjam' ? 0 : 1,
+          stok_minimum: 1,
           kondisi_barang: kondisiBarang,
           foto_barang: fotoBarang,
           status_ketersediaan: statusKetersediaan,
@@ -156,21 +167,22 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
       }
     } else {
       // Create mode
-      const generatedCode = OfficeInventoryDb.generateBarangCode();
+      const generatedCode = kodeBarang || OfficeInventoryDb.generateBarangCode();
       const nextId = currentList.length > 0 ? Math.max(...currentList.map(b => b.id_barang)) + 1 : 1;
       
       const newBarang: Barang = {
         id_barang: nextId,
         kode_barang: generatedCode,
+        nup: nup,
         nama_barang: namaBarang,
         id_kategori: Number(idKategori),
         merk_tipe: merkTipe,
         lokasi_penyimpanan: lokasiPenyimpanan,
-        stok: Number(stok),
-        stok_minimum: Number(stokMinimum),
+        stok: 1,
+        stok_minimum: 1,
         kondisi_barang: kondisiBarang,
         foto_barang: fotoBarang,
-        status_ketersediaan: Number(stok) > 0 ? 'Tersedia' : 'Dipinjam',
+        status_ketersediaan: 'Tersedia',
         qr_code: generatedCode,
         created_at: new Date().toISOString().replace('T', ' ').substring(0, 19),
         updated_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
@@ -190,30 +202,30 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
   const downloadTemplate = () => {
     const templateData = [
       {
+        "Kode Barang": "BRG-000008",
+        "NUP": "0008",
         "Nama Barang": "Laptop Lenovo ThinkPad L14",
         "Kategori": "Elektronik & IT",
         "Merk Tipe": "ThinkPad L14 Gen 3",
         "Lokasi Penyimpanan": "Lemari IT, Gedung A",
-        "Stok": 5,
-        "Stok Minimum": 1,
         "Kondisi": "Baik"
       },
       {
+        "Kode Barang": "BRG-000009",
+        "NUP": "0009",
         "Nama Barang": "Meja Rapat Kayu Jati",
         "Kategori": "Furniture & Mebel",
         "Merk Tipe": "Custom Jati 120x240",
         "Lokasi Penyimpanan": "Ruang Rapat Utama",
-        "Stok": 1,
-        "Stok Minimum": 1,
         "Kondisi": "Baik"
       },
       {
+        "Kode Barang": "BRG-000010",
+        "NUP": "0010",
         "Nama Barang": "Paper Shredder Secure",
         "Kategori": "Alat Tulis Kantor",
         "Merk Tipe": "Secure Easy S",
         "Lokasi Penyimpanan": "Ruang Logistik",
-        "Stok": 2,
-        "Stok Minimum": 1,
         "Kondisi": "Baik"
       }
     ];
@@ -245,6 +257,8 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
         }
 
         const mapped = json.map((row, idx) => {
+          const rawKode = row['Kode Barang'] || row['Kode'] || row['kode_barang'] || row['kode'] || '';
+          const rawNup = row['NUP'] || row['nup'] || row['Nomor Urut Pendaftaran'] || '';
           const rawNama = row['Nama Barang'] || row['Nama'] || row['nama_barang'] || row['nama'] || '';
           const rawKategori = row['Kategori'] || row['Kategori Barang'] || row['id_kategori'] || row['kategori'] || '';
           const rawMerk = row['Merk Tipe'] || row['Merk'] || row['Tipe'] || row['merk_tipe'] || row['merk'] || '';
@@ -293,13 +307,15 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
 
           return {
             key: idx,
+            kode_barang: rawKode.toString().trim(),
+            nup: rawNup.toString().trim(),
             nama_barang: rawNama.toString().trim(),
             id_kategori: categoryId,
             nama_kategori: categoryName,
             merk_tipe: rawMerk.toString().trim(),
             lokasi_penyimpanan: rawLokasi.toString().trim() || 'Gudang Utama',
-            stok: isNaN(Number(rawStok)) ? 1 : Number(rawStok),
-            stok_minimum: isNaN(Number(rawStokMin)) ? 1 : Number(rawStokMin),
+            stok: 1,
+            stok_minimum: 1,
             kondisi_barang: kondisi,
             isValid: errors.length === 0,
             errorMessage: errors.join(', ')
@@ -336,10 +352,11 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
     const importedBarangList: Barang[] = validItems.map(item => {
-      const generatedCode = 'BRG-' + String(nextNum++).padStart(6, '0');
+      const generatedCode = item.kode_barang || ('BRG-' + String(nextNum++).padStart(6, '0'));
       return {
         id_barang: nextId++,
         kode_barang: generatedCode,
+        nup: item.nup || '',
         nama_barang: item.nama_barang,
         id_kategori: item.id_kategori,
         merk_tipe: item.merk_tipe,
@@ -420,12 +437,37 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
   const filteredBarang = barangList.filter(b => {
     const matchesSearch = b.nama_barang.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           b.kode_barang.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (b.nup && b.nup.toLowerCase().includes(searchTerm.toLowerCase())) ||
                           b.merk_tipe.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           b.lokasi_penyimpanan.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesCategory = categoryFilter === 'all' || b.id_kategori === Number(categoryFilter);
     return matchesSearch && matchesCategory;
   });
+
+  // Pagination calculations
+  const totalItems = filteredBarang.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const paginatedBarang = filteredBarang.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const startItem = (currentPage - 1) * itemsPerPage + 1;
+  const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage < maxVisiblePages - 1) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
 
   return (
     <div className="space-y-6">
@@ -513,12 +555,11 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-150 text-xs font-bold text-gray-500 uppercase tracking-wider">
                 <th className="py-3 px-4 w-28 text-center">Foto</th>
-                <th className="py-3 px-4">Kode Barang</th>
+                <th className="py-3 px-4">Kode / NUP</th>
                 <th className="py-3 px-4">Nama Barang</th>
                 <th className="py-3 px-4">Kategori / Merk</th>
                 <th className="py-3 px-4">Lokasi</th>
                 <th className="py-3 px-4 text-center">Kondisi</th>
-                <th className="py-3 px-4 text-center">Stok / Min</th>
                 <th className="py-3 px-4 text-center">Status</th>
                 <th className="py-3 px-4 text-center w-36">Aksi</th>
               </tr>
@@ -526,12 +567,12 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
             <tbody className="divide-y divide-gray-150 text-sm">
               {filteredBarang.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-gray-400 text-xs">
+                  <td colSpan={8} className="py-8 text-center text-gray-400 text-xs">
                     Tidak ada inventaris barang yang terdaftar.
                   </td>
                 </tr>
               ) : (
-                filteredBarang.map((b) => {
+                paginatedBarang.map((b) => {
                   const categoryName = categories.find(c => c.id_kategori === b.id_kategori)?.nama_kategori || 'Kategori Lain';
                   const isLowStock = b.stok <= b.stok_minimum;
                   return (
@@ -546,9 +587,10 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
                         />
                       </td>
 
-                      {/* Code */}
-                      <td className="py-3 px-4 font-mono font-bold text-xs text-blue-700">
-                        {b.kode_barang}
+                      {/* Code / NUP */}
+                      <td className="py-3 px-4 font-mono">
+                        <div className="font-bold text-xs text-blue-700">{b.kode_barang}</div>
+                        {b.nup && <div className="text-[10px] text-gray-500 font-semibold mt-0.5">NUP: {b.nup}</div>}
                       </td>
 
                       {/* Name */}
@@ -578,14 +620,6 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
                         }`}>
                           {b.kondisi_barang}
                         </span>
-                      </td>
-
-                      {/* Stock / Minimum */}
-                      <td className="py-3 px-4 text-center font-mono">
-                        <span className={`font-bold ${isLowStock ? 'text-rose-600 font-extrabold' : 'text-gray-900'}`}>
-                          {b.stok}
-                        </span>
-                        <span className="text-gray-400 text-xs"> / {b.stok_minimum}</span>
                       </td>
 
                       {/* Status */}
@@ -650,6 +684,50 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {totalItems > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between pt-4 border-t border-gray-100 gap-4">
+            <div className="text-xs text-gray-500 font-medium">
+              Menampilkan <span className="font-bold text-gray-800">{startItem}</span> - <span className="font-bold text-gray-800">{endItem}</span> dari <span className="font-bold text-gray-800">{totalItems}</span> barang
+            </div>
+            
+            <div className="flex items-center gap-1.5">
+              <button
+                id="btn-prev-page"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1 cursor-pointer"
+              >
+                Sebelumnya
+              </button>
+              
+              {getPageNumbers().map(p => (
+                <button
+                  key={p}
+                  onClick={() => setCurrentPage(p)}
+                  className={`w-8 h-8 text-xs font-bold rounded-lg transition cursor-pointer ${
+                    currentPage === p 
+                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-200' 
+                      : 'border border-gray-200 text-gray-600 bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              
+              <button
+                id="btn-next-page"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1 cursor-pointer"
+              >
+                Selanjutnya
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* MODAL: Add / Edit Barang */}
@@ -708,12 +786,29 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Kode Barang</label>
                   <input 
+                    id="barang-code-input"
                     type="text" 
-                    disabled
+                    required
+                    placeholder="Contoh: BRG-000001"
                     value={kodeBarang}
-                    className="w-full px-3.5 py-2 border border-gray-200 bg-gray-50 text-gray-500 font-mono rounded-xl text-sm font-semibold"
+                    onChange={(e) => setKodeBarang(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-gray-200 font-mono rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <p className="text-[10px] text-gray-400">Kode barang digenerate secara otomatis oleh sistem</p>
+                  <p className="text-[10px] text-gray-400">Kode unik barang untuk sistem inventaris</p>
+                </div>
+
+                {/* NUP (Nomor Urut Pendaftaran) */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">NUP (Nomor Urut Pendaftaran)</label>
+                  <input 
+                    id="barang-nup-input"
+                    type="text" 
+                    placeholder="Contoh: 0001 atau 1"
+                    value={nup}
+                    onChange={(e) => setNup(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-gray-200 font-mono rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-[10px] text-gray-400">Nomor urut pendaftaran aset/barang kantor</p>
                 </div>
 
                 {/* Nama Barang */}
@@ -785,34 +880,6 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
                     <option value="Rusak Ringan">Rusak Ringan (Butuh Servis Minor)</option>
                     <option value="Rusak Berat">Rusak Berat (Tidak Layak Pakai)</option>
                   </select>
-                </div>
-
-                {/* Stok */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Stok Tersedia</label>
-                  <input 
-                    id="barang-stock-input"
-                    type="number" 
-                    min={0}
-                    required
-                    value={stok}
-                    onChange={(e) => setStok(Number(e.target.value))}
-                    className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
-                  />
-                </div>
-
-                {/* Stok Minimum */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Stok Minimum Peringatan</label>
-                  <input 
-                    id="barang-minstock-input"
-                    type="number" 
-                    min={0}
-                    required
-                    value={stokMinimum}
-                    onChange={(e) => setStokMinimum(Number(e.target.value))}
-                    className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
-                  />
                 </div>
 
                 {/* Status Ketersediaan (only visible on edit) */}
@@ -909,8 +976,6 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
                         <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Kategori</span>,{' '}
                         <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Merk Tipe</span>,{' '}
                         <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Lokasi Penyimpanan</span>,{' '}
-                        <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Stok</span>,{' '}
-                        <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Stok Minimum</span>,{' '}
                         <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Kondisi</span>
                       </p>
                     </div>
@@ -997,11 +1062,12 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
                           <thead className="bg-gray-50 border-b border-gray-150 sticky top-0 z-10">
                             <tr className="font-semibold text-gray-500 uppercase tracking-wider">
                               <th className="py-2.5 px-3 w-10 text-center text-gray-500 font-semibold">No</th>
+                              <th className="py-2.5 px-3 text-gray-500 font-semibold">Kode</th>
+                              <th className="py-2.5 px-3 text-gray-500 font-semibold">NUP</th>
                               <th className="py-2.5 px-3 text-gray-500 font-semibold">Nama Barang</th>
                               <th className="py-2.5 px-3 text-gray-500 font-semibold">Kategori</th>
                               <th className="py-2.5 px-3 text-gray-500 font-semibold">Merk/Tipe</th>
-                              <th className="py-2.5 px-3 text-gray-500 font-semibold">Lokasi</th>
-                              <th className="py-2.5 px-3 text-center text-gray-500 font-semibold">Stok (Min)</th>
+                              <th className="py-2.5 px-3 text-gray-600 font-semibold">Lokasi</th>
                               <th className="py-2.5 px-3 text-center text-gray-500 font-semibold">Kondisi</th>
                               <th className="py-2.5 px-3 text-center text-gray-500 font-semibold">Status</th>
                             </tr>
@@ -1010,11 +1076,12 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
                             {parsedItems.map((item, idx) => (
                               <tr key={item.key} className={item.isValid ? 'hover:bg-gray-50/50' : 'bg-rose-50/30 hover:bg-rose-50/50'}>
                                 <td className="py-2 px-3 text-center text-gray-400">{idx + 1}</td>
+                                <td className="py-2 px-3 font-mono text-xs font-semibold text-blue-700">{item.kode_barang || <span className="text-gray-400 italic">Auto</span>}</td>
+                                <td className="py-2 px-3 font-mono text-xs text-slate-500">{item.nup || '-'}</td>
                                 <td className="py-2 px-3 font-semibold text-gray-900">{item.nama_barang || <span className="text-rose-500 italic">Kosong</span>}</td>
                                 <td className="py-2 px-3 text-gray-600">{item.nama_kategori}</td>
                                 <td className="py-2 px-3 text-gray-500">{item.merk_tipe || '-'}</td>
                                 <td className="py-2 px-3 text-gray-600">{item.lokasi_penyimpanan}</td>
-                                <td className="py-2 px-3 text-center font-mono text-gray-700">{item.stok} ({item.stok_minimum})</td>
                                 <td className="py-2 px-3 text-center animate-fade-in">
                                   <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
                                     item.kondisi_barang === 'Baik' ? 'bg-emerald-100 text-emerald-800' :

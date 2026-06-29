@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Kategori, Barang, Peminjam, User, Peminjaman, DetailPeminjaman, Pengembalian, AuditLog } from './types';
+import { Kategori, Barang, Peminjam, User, Peminjaman, DetailPeminjaman, Pengembalian, AuditLog, SerahTerima, DetailSerahTerima, Perbaikan } from './types';
 
 const STORAGE_KEYS = {
   KATEGORI: 'inv_kategori',
@@ -14,9 +14,55 @@ const STORAGE_KEYS = {
   DETAIL_PEMINJAMAN: 'inv_detail_peminjaman',
   PENGEMBALIAN: 'inv_pengembalian',
   AUDIT_LOG: 'inv_audit_log',
+  SERAH_TERIMA: 'inv_serah_terima',
+  DETAIL_SERAH_TERIMA: 'inv_detail_serah_terima',
+  PERBAIKAN: 'inv_perbaikan',
 };
 
 // Initial Data
+const INITIAL_PERBAIKAN: Perbaikan[] = [
+  {
+    id_perbaikan: 1,
+    id_barang: 1,
+    tanggal_perbaikan: '2026-05-10',
+    deskripsi_perbaikan: 'Pembersihan kipas internal & ganti thermal paste prosessor',
+    biaya: 150000,
+    teknisi_vendor: 'Asus Service Center Mangga Dua',
+    status_perbaikan: 'Selesai',
+    kondisi_setelah_perbaikan: 'Baik'
+  },
+  {
+    id_perbaikan: 2,
+    id_barang: 2,
+    tanggal_perbaikan: '2026-04-15',
+    deskripsi_perbaikan: 'Pelumasan hidrolik kursi & pengencangan sandaran punggung',
+    biaya: 75000,
+    teknisi_vendor: 'Teknisi Logistik internal',
+    status_perbaikan: 'Selesai',
+    kondisi_setelah_perbaikan: 'Baik'
+  },
+  {
+    id_perbaikan: 3,
+    id_barang: 3,
+    tanggal_perbaikan: '2026-03-20',
+    deskripsi_perbaikan: 'Penggantian lampu utama proyektor (OEM Epson Lamp)',
+    biaya: 1200000,
+    teknisi_vendor: 'Epson Authorized Service',
+    status_perbaikan: 'Selesai',
+    kondisi_setelah_perbaikan: 'Baik'
+  },
+  {
+    id_perbaikan: 4,
+    id_barang: 7,
+    tanggal_perbaikan: '2026-06-02',
+    deskripsi_perbaikan: 'Perbaikan roda papan tulis lipat yang patah & pembersihan noda spidol permanen',
+    biaya: 100000,
+    teknisi_vendor: 'Bengkel Mebel Sakura',
+    status_perbaikan: 'Selesai',
+    kondisi_setelah_perbaikan: 'Baik'
+  }
+];
+
 const INITIAL_KATEGORI: Kategori[] = [
   { id_kategori: 1, nama_kategori: 'Elektronik & IT', keterangan: 'Laptop, Router, Switch, Tablet, dan aksesoris IT lainnya' },
   { id_kategori: 2, nama_kategori: 'Furniture & Mebel', keterangan: 'Meja kerja, kursi ergonomis, lemari berkas, dan sekat ruang' },
@@ -29,12 +75,13 @@ const INITIAL_BARANG: Barang[] = [
   {
     id_barang: 1,
     kode_barang: 'BRG-000001',
+    nup: '0001',
     nama_barang: 'Laptop Asus ExpertBook B5',
     id_kategori: 1,
     merk_tipe: 'Asus B5402C',
     lokasi_penyimpanan: 'Lemari A, Lab IT',
-    stok: 12,
-    stok_minimum: 3,
+    stok: 1,
+    stok_minimum: 1,
     kondisi_barang: 'Baik',
     foto_barang: 'https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=200&q=80',
     status_ketersediaan: 'Tersedia',
@@ -45,12 +92,13 @@ const INITIAL_BARANG: Barang[] = [
   {
     id_barang: 2,
     kode_barang: 'BRG-000002',
+    nup: '0002',
     nama_barang: 'Kursi Kerja Ergonomis Jaring',
     id_kategori: 2,
     merk_tipe: 'Ergohuman Gen-2',
     lokasi_penyimpanan: 'Ruang Logistik Lantai 2',
-    stok: 8,
-    stok_minimum: 2,
+    stok: 1,
+    stok_minimum: 1,
     kondisi_barang: 'Baik',
     foto_barang: 'https://images.unsplash.com/photo-1505797149-43b0069ec26b?w=200&q=80',
     status_ketersediaan: 'Tersedia',
@@ -61,12 +109,13 @@ const INITIAL_BARANG: Barang[] = [
   {
     id_barang: 3,
     kode_barang: 'BRG-000003',
+    nup: '0003',
     nama_barang: 'Proyektor Epson EB-X500 XGA',
     id_kategori: 3,
     merk_tipe: 'Epson EB-X500',
     lokasi_penyimpanan: 'Lemari B, Ruang Rapat Utama',
-    stok: 2, // Low stock (minimum is 2)
-    stok_minimum: 2,
+    stok: 1,
+    stok_minimum: 1,
     kondisi_barang: 'Baik',
     foto_barang: 'https://images.unsplash.com/photo-1535016120720-40c646be5580?w=200&q=80',
     status_ketersediaan: 'Tersedia',
@@ -77,11 +126,12 @@ const INITIAL_BARANG: Barang[] = [
   {
     id_barang: 4,
     kode_barang: 'BRG-000004',
+    nup: '0004',
     nama_barang: 'Kamera DSLR Canon EOS 200D II',
     id_kategori: 1,
     merk_tipe: 'Canon EOS 200D II Kit 18-55mm',
     lokasi_penyimpanan: 'Brankas Kecil, Ruang Humas',
-    stok: 3,
+    stok: 1,
     stok_minimum: 1,
     kondisi_barang: 'Baik',
     foto_barang: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=200&q=80',
@@ -93,11 +143,12 @@ const INITIAL_BARANG: Barang[] = [
   {
     id_barang: 5,
     kode_barang: 'BRG-000005',
+    nup: '0005',
     nama_barang: 'Printer HP LaserJet Pro M404dn',
     id_kategori: 1,
     merk_tipe: 'HP Laser M404dn',
     lokasi_penyimpanan: 'Meja Administrasi Umum',
-    stok: 4,
+    stok: 1,
     stok_minimum: 1,
     kondisi_barang: 'Baik',
     foto_barang: 'https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?w=200&q=80',
@@ -109,11 +160,12 @@ const INITIAL_BARANG: Barang[] = [
   {
     id_barang: 6,
     kode_barang: 'BRG-000006',
+    nup: '0006',
     nama_barang: 'Mobil Toyota Avanza Veloz (Dinas)',
     id_kategori: 5,
     merk_tipe: 'Toyota Avanza 1.5 Q CVT',
     lokasi_penyimpanan: 'Gedung Parkir B-1',
-    stok: 1, // Stok menipis / pas-pasan
+    stok: 1,
     stok_minimum: 1,
     kondisi_barang: 'Baik',
     foto_barang: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=200&q=80',
@@ -125,11 +177,12 @@ const INITIAL_BARANG: Barang[] = [
   {
     id_barang: 7,
     kode_barang: 'BRG-000007',
+    nup: '0007',
     nama_barang: 'Papan Tulis Mobile Magnetic',
     id_kategori: 3,
     merk_tipe: 'Sakura 120x240 Dual-Side',
     lokasi_penyimpanan: 'Ruang Rapat Kecil Lantai 3',
-    stok: 0, // Habis dipinjam
+    stok: 0,
     stok_minimum: 1,
     kondisi_barang: 'Rusak Ringan',
     foto_barang: 'https://images.unsplash.com/photo-1571844307560-f40a4af14cd9?w=200&q=80',
@@ -322,8 +375,17 @@ export function getDbData<T>(key: string, initial: T[]): T[] {
   return JSON.parse(data);
 }
 
+let onDataWriteCallback: (() => void) | null = null;
+
+export function registerOnDataWrite(callback: () => void) {
+  onDataWriteCallback = callback;
+}
+
 export function saveDbData<T>(key: string, data: T[]): void {
   localStorage.setItem(key, JSON.stringify(data));
+  if (onDataWriteCallback) {
+    onDataWriteCallback();
+  }
 }
 
 // Global DB class for clean mock operations
@@ -331,7 +393,27 @@ export class OfficeInventoryDb {
   static getKategori(): Kategori[] { return getDbData(STORAGE_KEYS.KATEGORI, INITIAL_KATEGORI); }
   static saveKategori(data: Kategori[]) { saveDbData(STORAGE_KEYS.KATEGORI, data); }
 
-  static getBarang(): Barang[] { return getDbData(STORAGE_KEYS.BARANG, INITIAL_BARANG); }
+  static getBarang(): Barang[] {
+    const list = getDbData(STORAGE_KEYS.BARANG, INITIAL_BARANG);
+    let adjusted = false;
+    const newList = list.map(b => {
+      // All items should have a maximum stock of 1 (or 0 if currently borrowed)
+      const targetStok = b.status_ketersediaan === 'Dipinjam' ? 0 : 1;
+      if (b.stok !== targetStok) {
+        b.stok = targetStok;
+        adjusted = true;
+      }
+      if (b.stok_minimum !== 1) {
+        b.stok_minimum = 1;
+        adjusted = true;
+      }
+      return b;
+    });
+    if (adjusted) {
+      this.saveBarang(newList);
+    }
+    return newList;
+  }
   static saveBarang(data: Barang[]) { saveDbData(STORAGE_KEYS.BARANG, data); }
 
   static getPeminjam(): Peminjam[] { return getDbData(STORAGE_KEYS.PEMINJAM, INITIAL_PEMINJAM); }
@@ -354,6 +436,37 @@ export class OfficeInventoryDb {
 
   static getAuditLogs(): AuditLog[] { return this.getAuditLog(); }
   static saveAuditLogs(data: AuditLog[]) { this.saveAuditLog(data); }
+
+  static getSerahTerima(): SerahTerima[] { return getDbData(STORAGE_KEYS.SERAH_TERIMA, []); }
+  static saveSerahTerima(data: SerahTerima[]) { saveDbData(STORAGE_KEYS.SERAH_TERIMA, data); }
+
+  static getDetailSerahTerima(): DetailSerahTerima[] { return getDbData(STORAGE_KEYS.DETAIL_SERAH_TERIMA, []); }
+  static saveDetailSerahTerima(data: DetailSerahTerima[]) { saveDbData(STORAGE_KEYS.DETAIL_SERAH_TERIMA, data); }
+
+  static getPerbaikan(): Perbaikan[] { return getDbData(STORAGE_KEYS.PERBAIKAN, INITIAL_PERBAIKAN); }
+  static savePerbaikan(data: Perbaikan[]) { saveDbData(STORAGE_KEYS.PERBAIKAN, data); }
+
+  static generateBastCode(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const dateStr = `${year}${month}${day}`; // YYYYMMDD
+    
+    const bast = this.getSerahTerima();
+    const prefix = `BAST-${dateStr}-`;
+    const todayTrans = bast.filter(p => p.nomor_bast.startsWith(prefix));
+    
+    if (todayTrans.length === 0) return `${prefix}0001`;
+    
+    const numbers = todayTrans.map(p => {
+      const parts = p.nomor_bast.split('-');
+      return parts.length === 3 ? parseInt(parts[2]) : 0;
+    });
+    
+    const nextNum = Math.max(...numbers) + 1;
+    return `${prefix}${String(nextNum).padStart(4, '0')}`;
+  }
 
   static getRiwayatBarang(id_barang: number): any[] {
     const details = this.getDetailPeminjaman().filter(d => d.id_barang === id_barang);
@@ -430,7 +543,8 @@ export class OfficeInventoryDb {
     keterangan: string,
     dokumenPendukung: string,
     items: { id_barang: number; jumlah_pinjam: number; kondisi_pinjam: 'Baik' | 'Rusak Ringan' | 'Rusak Berat'; keterangan: string }[],
-    idUser: number
+    idUser: number,
+    tandaTangan?: string
   ): { success: boolean; message: string; nomor?: string } {
     
     const barangList = this.getBarang();
@@ -476,7 +590,8 @@ export class OfficeInventoryDb {
       dokumen_pendukung: dokumenPendukung || 'Tidak_ada_dokumen.pdf',
       status: 'Dipinjam',
       created_by: idUser,
-      created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+      created_at: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      tanda_tangan: tandaTangan
     };
 
     peminjamanList.unshift(newPeminjaman);
@@ -645,7 +760,8 @@ export class OfficeInventoryDb {
     sql += `DROP TABLE IF EXISTS tabel_barang;\n`;
     sql += `CREATE TABLE tabel_barang (\n`;
     sql += `  id_barang int(11) NOT NULL AUTO_INCREMENT,\n`;
-    sql += `  kode_barang varchar(20) NOT NULL UNIQUE,\n`;
+    sql += `  kode_barang varchar(20) NOT NULL,\n`;
+    sql += `  nup varchar(50) DEFAULT NULL,\n`;
     sql += `  id_kategori int(11) NOT NULL,\n`;
     sql += `  nama_barang varchar(255) NOT NULL,\n`;
     sql += `  merk_tipe varchar(150) DEFAULT NULL,\n`;
@@ -664,7 +780,7 @@ export class OfficeInventoryDb {
 
     sql += `-- Dumping data for table tabel_barang\n`;
     barang.forEach(b => {
-      sql += `INSERT INTO tabel_barang (id_barang, kode_barang, id_kategori, nama_barang, merk_tipe, lokasi_penyimpanan, stok, stok_minimum, kondisi_barang, foto_barang, status_ketersediaan, qr_code, created_at, updated_at) VALUES (${b.id_barang}, '${b.kode_barang}', ${b.id_kategori}, '${b.nama_barang.replace(/'/g, "''")}', '${b.merk_tipe.replace(/'/g, "''")}', '${b.lokasi_penyimpanan?.replace(/'/g, "''") || ''}', ${b.stok}, ${b.stok_minimum}, '${b.kondisi_barang}', '${b.foto_barang}', '${b.status_ketersediaan}', '${b.qr_code}', '${b.created_at}', '${b.updated_at}');\n`;
+      sql += `INSERT INTO tabel_barang (id_barang, kode_barang, nup, id_kategori, nama_barang, merk_tipe, lokasi_penyimpanan, stok, stok_minimum, kondisi_barang, foto_barang, status_ketersediaan, qr_code, created_at, updated_at) VALUES (${b.id_barang}, '${b.kode_barang}', ${b.nup ? `'${b.nup}'` : 'NULL'}, ${b.id_kategori}, '${b.nama_barang.replace(/'/g, "''")}', '${b.merk_tipe.replace(/'/g, "''")}', '${b.lokasi_penyimpanan?.replace(/'/g, "''") || ''}', ${b.stok}, ${b.stok_minimum}, '${b.kondisi_barang}', '${b.foto_barang}', '${b.status_ketersediaan}', '${b.qr_code}', '${b.created_at}', '${b.updated_at}');\n`;
     });
     sql += `\n`;
 

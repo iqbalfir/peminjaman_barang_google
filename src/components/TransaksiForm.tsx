@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Calendar, FileText, CheckCircle, AlertCircle, ShoppingBag, PlusCircle, ArrowLeft, Paperclip } from 'lucide-react';
+import { Plus, Trash2, Calendar, FileText, CheckCircle, AlertCircle, ShoppingBag, PlusCircle, ArrowLeft, Paperclip, Eraser, PenTool, Search } from 'lucide-react';
 import { OfficeInventoryDb } from '../dbMock';
 import { Peminjam, Barang } from '../types';
 
@@ -28,6 +28,18 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
   const [peminjamList, setPeminjamList] = useState<Peminjam[]>([]);
   const [barangList, setBarangList] = useState<Barang[]>([]);
 
+  // Peminjam autocomplete states
+  const [searchPeminjamTerm, setSearchPeminjamTerm] = useState<string>('');
+  const [showPeminjamSuggestions, setShowPeminjamSuggestions] = useState<boolean>(false);
+
+  // Barang autocomplete states
+  const [showBarangSuggestions, setShowBarangSuggestions] = useState<boolean>(false);
+
+  // Signature related states
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSigned, setHasSigned] = useState(false);
+
   // Generated document code
   const [nomorPeminjaman, setNomorPeminjaman] = useState('');
 
@@ -44,12 +56,18 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
 
   // Current adding item dropdown selected
   const [currentBarangId, setCurrentBarangId] = useState<string>('');
+  const [searchBarangTerm, setSearchBarangTerm] = useState<string>('');
   const [currentJml, setCurrentJml] = useState<number>(1);
   const [currentKondisi, setCurrentKondisi] = useState<'Baik' | 'Rusak Ringan' | 'Rusak Berat'>('Baik');
   const [currentKet, setCurrentKet] = useState<string>('');
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const filteredBarangList = barangList.filter(b => 
+    b.nama_barang.toLowerCase().includes(searchBarangTerm.toLowerCase()) ||
+    b.kode_barang.toLowerCase().includes(searchBarangTerm.toLowerCase())
+  );
 
   useEffect(() => {
     setPeminjamList(OfficeInventoryDb.getPeminjam());
@@ -68,6 +86,74 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
     // Generate code
     setNomorPeminjaman(OfficeInventoryDb.generatePeminjamanCode());
   }, []);
+
+  // Initialize canvas size and fill background with white
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.width = canvas.parentElement?.clientWidth || 500;
+        canvas.height = 160;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Handle drawing on canvas
+  const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.strokeStyle = '#1e3a8a'; // Deep blue pen color
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    setIsDrawing(true);
+    canvas.setPointerCapture(e.pointerId);
+  };
+
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+    ctx.stroke();
+    setHasSigned(true);
+  };
+
+  const stopDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    setHasSigned(false);
+  };
 
   // Set default quantities when selecting item
   useEffect(() => {
@@ -122,6 +208,7 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
 
     // Reset current row builders
     setCurrentBarangId('');
+    setSearchBarangTerm('');
     setCurrentJml(1);
     setCurrentKet('');
   };
@@ -160,6 +247,14 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
       return;
     }
 
+    // Require digital signature
+    if (!hasSigned) {
+      setErrorMsg('Tanda tangan digital peminjam wajib diisi sebagai bukti verifikasi transaksi peminjaman.');
+      return;
+    }
+
+    const signatureBase64 = canvasRef.current?.toDataURL('image/png') || '';
+
     // Call DB Mock Transaction
     const response = OfficeInventoryDb.createPeminjaman(
       Number(idPeminjam),
@@ -174,7 +269,8 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
         kondisi_pinjam: item.kondisi_pinjam,
         keterangan: item.keterangan
       })),
-      currentUser?.id_user || 2 // Default to active petugas/user
+      currentUser?.id_user || 2, // Default to active petugas/user
+      signatureBase64
     );
 
     if (response.success) {
@@ -241,21 +337,76 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
             />
           </div>
 
-          {/* Peminjam Selector (Select2 simulation) */}
-          <div className="space-y-1">
+          {/* Peminjam Selector (Search as you type autocomplete) */}
+          <div className="space-y-1 relative">
             <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Nama Peminjam (Pegawai)</label>
-            <select 
-              id="loan-borrower-select"
-              required
-              value={idPeminjam}
-              onChange={(e) => setIdPeminjam(e.target.value)}
-              className="w-full px-3 py-2 border rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold"
-            >
-              <option value="">-- Pilih Pegawai --</option>
-              {peminjamList.map(p => (
-                <option key={p.id_peminjam} value={p.id_peminjam}>{p.nama_lengkap} ({p.nip_nik})</option>
-              ))}
-            </select>
+            <div className="relative">
+              <input 
+                id="loan-borrower-search"
+                type="text" 
+                required
+                placeholder="Ketik nama pegawai..."
+                value={searchPeminjamTerm}
+                onChange={(e) => {
+                  setSearchPeminjamTerm(e.target.value);
+                  setShowPeminjamSuggestions(true);
+                  if (idPeminjam) {
+                    setIdPeminjam(''); // reset selection if they continue typing
+                  }
+                }}
+                onFocus={() => setShowPeminjamSuggestions(true)}
+                className="w-full px-3 py-2 pl-9 border rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-slate-800 placeholder:text-gray-400 placeholder:font-normal"
+              />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                <Search className="h-4 w-4" />
+              </div>
+
+              {idPeminjam && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider">Terpilih</span>
+                </div>
+              )}
+            </div>
+
+            {/* Suggestions list under the input */}
+            {showPeminjamSuggestions && (
+              <>
+                <div 
+                  className="fixed inset-0 z-10" 
+                  onClick={() => setShowPeminjamSuggestions(false)} 
+                />
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto z-20 divide-y divide-slate-100">
+                  {peminjamList.filter(p => 
+                    p.nama_lengkap.toLowerCase().includes(searchPeminjamTerm.toLowerCase()) ||
+                    p.instansi_unit_kerja.toLowerCase().includes(searchPeminjamTerm.toLowerCase())
+                  ).length === 0 ? (
+                    <div className="p-3 text-center text-xs text-slate-400 italic">
+                      Pegawai tidak ditemukan. Silakan daftarkan di Master Peminjam.
+                    </div>
+                  ) : (
+                    peminjamList.filter(p => 
+                      p.nama_lengkap.toLowerCase().includes(searchPeminjamTerm.toLowerCase()) ||
+                      p.instansi_unit_kerja.toLowerCase().includes(searchPeminjamTerm.toLowerCase())
+                    ).map(p => (
+                      <button
+                        key={p.id_peminjam}
+                        type="button"
+                        onClick={() => {
+                          setIdPeminjam(String(p.id_peminjam));
+                          setSearchPeminjamTerm(p.nama_lengkap);
+                          setShowPeminjamSuggestions(false);
+                        }}
+                        className="w-full text-left px-3.5 py-2 hover:bg-blue-50/50 transition text-xs flex flex-col gap-0.5"
+                      >
+                        <span className="font-bold text-slate-800">{p.nama_lengkap}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{p.instansi_unit_kerja} • {p.jabatan}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Tanggal Pinjam */}
@@ -332,27 +483,74 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
           
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
             
-            {/* Barang Selector */}
-            <div className="space-y-1 md:col-span-4">
-              <label className="text-[10px] font-bold text-blue-800 uppercase">Pilih Barang</label>
-              <select 
-                id="row-barang-select"
-                value={currentBarangId}
-                onChange={(e) => setCurrentBarangId(e.target.value)}
-                className="w-full px-3 py-2 border rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium text-slate-700"
-              >
-                <option value="">-- Cari Barang Tersedia --</option>
-                {barangList.map(b => (
-                  <option key={b.id_barang} value={b.id_barang}>
-                    {b.nama_barang} [{b.kode_barang}] - Stok: {b.stok} ({b.kondisi_barang})
-                  </option>
-                ))}
-              </select>
+            {/* Barang Selector with Autocomplete */}
+            <div className="space-y-1 md:col-span-5 relative">
+              <label className="text-[10px] font-bold text-blue-800 uppercase block">Cari & Pilih Barang</label>
+              <div className="relative">
+                <input 
+                  id="row-barang-autocomplete"
+                  type="text" 
+                  placeholder="Ketik nama atau kode barang..."
+                  value={searchBarangTerm}
+                  onChange={(e) => {
+                    setSearchBarangTerm(e.target.value);
+                    setShowBarangSuggestions(true);
+                    if (currentBarangId) {
+                      setCurrentBarangId('');
+                    }
+                  }}
+                  onFocus={() => setShowBarangSuggestions(true)}
+                  className="w-full px-3 py-1.5 pl-9 border rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-slate-800 placeholder:text-gray-400 placeholder:font-normal"
+                />
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                  <Search className="h-3.5 w-3.5" />
+                </div>
+
+                {currentBarangId && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span className="text-[8px] font-extrabold text-emerald-600 uppercase tracking-wider">Terpilih</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Suggestions list under the input */}
+              {showBarangSuggestions && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setShowBarangSuggestions(false)} 
+                  />
+                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto z-20 divide-y divide-slate-100">
+                    {filteredBarangList.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-400 italic">
+                        Barang tidak ditemukan atau stok habis.
+                      </div>
+                    ) : (
+                      filteredBarangList.map(b => (
+                        <button
+                          key={b.id_barang}
+                          type="button"
+                          onClick={() => {
+                            setCurrentBarangId(String(b.id_barang));
+                            setSearchBarangTerm(`${b.nama_barang} [${b.kode_barang}]`);
+                            setShowBarangSuggestions(false);
+                          }}
+                          className="w-full text-left px-3.5 py-2 hover:bg-blue-50/50 transition text-xs flex flex-col gap-0.5"
+                        >
+                          <span className="font-bold text-slate-800">{b.nama_barang} <span className="font-mono text-gray-400 text-[9px] font-medium">[{b.kode_barang}]</span></span>
+                          <span className="text-[10px] text-slate-400 font-medium">Stok Tersedia: {b.stok} • Kondisi: {b.kondisi_barang}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Jumlah Pinjam */}
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-[10px] font-bold text-blue-800 uppercase">Jumlah Pinjam</label>
+            <div className="space-y-1 md:col-span-1">
+              <label className="text-[10px] font-bold text-blue-800 uppercase">Jumlah</label>
               <input 
                 id="row-qty-input"
                 type="number"
@@ -363,14 +561,14 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
               />
             </div>
 
-            {/* Kondisi saat pinjam (read-only / static based on selected item, or selectable) */}
+            {/* Kondisi saat pinjam */}
             <div className="space-y-1 md:col-span-2">
               <label className="text-[10px] font-bold text-blue-800 uppercase">Kondisi</label>
               <select
                 id="row-condition-select"
                 value={currentKondisi}
                 onChange={(e) => setCurrentKondisi(e.target.value as any)}
-                className="w-full px-3 py-1.5 border rounded-xl bg-gray-50 focus:outline-none text-sm font-semibold"
+                className="w-full px-3 py-1.5 border rounded-xl bg-gray-50 focus:outline-none text-sm font-semibold text-slate-700"
               >
                 <option value="Baik">Baik</option>
                 <option value="Rusak Ringan">Rusak Ringan</option>
@@ -462,6 +660,54 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* SECTION: Tanda Tangan Digital */}
+        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+            <div>
+              <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <PenTool className="h-4 w-4 text-blue-600" /> Tanda Tangan Digital Peminjam
+              </h4>
+              <p className="text-[11px] text-gray-500">Gunakan mouse, trackpad, atau layar sentuh untuk menggambar tanda tangan di area putih di bawah</p>
+            </div>
+            <div>
+              {hasSigned ? (
+                <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Tanda Tangan Terbaca
+                </span>
+              ) : (
+                <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border border-amber-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
+                  Belum Ditandatangani
+                </span>
+              )}
+            </div>
+          </div>
+          
+          <div className="relative border border-slate-300 rounded-xl overflow-hidden bg-white shadow-inner">
+            <canvas
+              ref={canvasRef}
+              onPointerDown={startDrawing}
+              onPointerMove={draw}
+              onPointerUp={stopDrawing}
+              onPointerCancel={stopDrawing}
+              className="w-full h-40 cursor-crosshair bg-white touch-none"
+              style={{ display: 'block' }}
+            />
+          </div>
+
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-gray-400 italic">Kolom di atas merupakan dokumen bukti serah terima resmi</span>
+            <button
+              type="button"
+              onClick={clearSignature}
+              className="px-3 py-1.5 bg-white hover:bg-slate-100 text-rose-600 hover:text-rose-700 border border-slate-200 hover:border-slate-300 rounded-xl transition font-bold flex items-center gap-1 shadow-xs text-xs"
+            >
+              <Eraser className="h-3.5 w-3.5" /> Bersihkan Area
+            </button>
           </div>
         </div>
 

@@ -186,12 +186,13 @@ class BarangModel {
 
     public function insert($data) {
         $query = "INSERT INTO " . $this->table . " 
-                  (kode_barang, id_kategori, nama_barang, merk_tipe, lokasi_penyimpanan, stok, stok_minimum, kondisi_barang, foto_barang, status_ketersediaan, qr_code, created_at, updated_at) 
-                  VALUES (:kode, :id_kat, :nama, :merk, :lokasi, :stok, :stok_min, :kondisi, :foto, :status, :qr, NOW(), NOW())";
+                  (kode_barang, nup, id_kategori, nama_barang, merk_tipe, lokasi_penyimpanan, stok, stok_minimum, kondisi_barang, foto_barang, status_ketersediaan, qr_code, created_at, updated_at) 
+                  VALUES (:kode, :nup, :id_kat, :nama, :merk, :lokasi, :stok, :stok_min, :kondisi, :foto, :status, :qr, NOW(), NOW())";
         
         $stmt = $this->db->prepare($query);
         return $stmt->execute([
             ':kode' => $data['kode_barang'],
+            ':nup' => $data['nup'] ?? null,
             ':id_kat' => $data['id_kategori'],
             ':nama' => $data['nama_barang'],
             ':merk' => $data['merk_tipe'],
@@ -207,7 +208,7 @@ class BarangModel {
 
     public function update($id, $data) {
         $query = "UPDATE " . $this->table . " SET 
-                  id_kategori = :id_kat, nama_barang = :nama, merk_tipe = :merk, 
+                  nup = :nup, id_kategori = :id_kat, nama_barang = :nama, merk_tipe = :merk, 
                   lokasi_penyimpanan = :lokasi, stok = :stok, stok_minimum = :stok_min, 
                   kondisi_barang = :kondisi, status_ketersediaan = :status, foto_barang = :foto,
                   updated_at = NOW() 
@@ -216,6 +217,7 @@ class BarangModel {
         $stmt = $this->db->prepare($query);
         return $stmt->execute([
             ':id' => $id,
+            ':nup' => $data['nup'] ?? null,
             ':id_kat' => $data['id_kategori'],
             ':nama' => $data['nama_barang'],
             ':merk' => $data['merk_tipe'],
@@ -736,7 +738,8 @@ CREATE TABLE \`tabel_kategori\` (
 -- 2. tabel_barang
 CREATE TABLE \`tabel_barang\` (
   \`id_barang\` int(11) NOT NULL AUTO_INCREMENT,
-  \`kode_barang\` varchar(20) NOT NULL UNIQUE,
+  \`kode_barang\` varchar(20) NOT NULL,
+  \`nup\` varchar(50) DEFAULT NULL,
   \`id_kategori\` int(11) NOT NULL,
   \`nama_barang\` varchar(255) NOT NULL,
   \`merk_tipe\` varchar(150) DEFAULT NULL,

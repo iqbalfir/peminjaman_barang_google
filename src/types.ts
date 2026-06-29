@@ -12,6 +12,7 @@ export interface Kategori {
 export interface Barang {
   id_barang: number;
   kode_barang: string;
+  nup?: string;
   nama_barang: string;
   id_kategori: number;
   merk_tipe: string;
@@ -28,7 +29,7 @@ export interface Barang {
 
 export interface Peminjam {
   id_peminjam: number;
-  nip_nik: string;
+  nip_nik?: string;
   nama_lengkap: string;
   instansi_unit_kerja: string;
   jabatan: string;
@@ -59,6 +60,7 @@ export interface Peminjaman {
   status: 'Dipinjam' | 'Sebagian Kembali' | 'Selesai';
   created_by: number; // id_user
   created_at: string;
+  tanda_tangan?: string; // Base64 signature image
 }
 
 export interface DetailPeminjaman {
@@ -87,3 +89,38 @@ export interface AuditLog {
   aktivitas: string;
   ip_address: string;
 }
+
+export interface SerahTerima {
+  id_serah_terima: number;
+  nomor_bast: string;
+  tanggal_serah: string;
+  tanggal_kembali?: string;
+  id_peminjam: number;
+  keperluan: string;
+  keterangan: string;
+  status: 'Diserahkan' | 'Dikembalikan';
+  created_by: number;
+  created_at: string;
+}
+
+export interface DetailSerahTerima {
+  id_detail_bast: number;
+  id_serah_terima: number;
+  id_barang: number;
+  jumlah_serah: number;
+  jumlah_kembali: number;
+  kondisi_serah: 'Baik' | 'Rusak Ringan' | 'Rusak Berat';
+  kondisi_kembali: 'Baik' | 'Rusak Ringan' | 'Rusak Berat' | 'Hilang' | '';
+}
+
+export interface Perbaikan {
+  id_perbaikan: number;
+  id_barang: number;
+  tanggal_perbaikan: string;
+  deskripsi_perbaikan: string;
+  biaya: number;
+  teknisi_vendor: string;
+  status_perbaikan: 'Dalam Proses' | 'Selesai';
+  kondisi_setelah_perbaikan: 'Baik' | 'Rusak Ringan' | 'Rusak Berat';
+}
+

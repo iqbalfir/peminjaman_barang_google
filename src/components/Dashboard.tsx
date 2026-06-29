@@ -32,10 +32,10 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
   const barangDipinjam = barangList.filter(b => b.stok === 0 || b.status_ketersediaan === 'Dipinjam').length;
   const totalPeminjam = peminjamList.length;
   const transaksiAktif = peminjamanList.filter(p => p.status === 'Dipinjam' || p.status === 'Sebagian Kembali').length;
-  const stokMenipis = barangList.filter(b => b.stok <= b.stok_minimum).length;
+  const barangRusak = barangList.filter(b => b.kondisi_barang !== 'Baik').length;
 
-  // Stock warning items
-  const lowStockItems = barangList.filter(b => b.stok <= b.stok_minimum);
+  // Damaged items
+  const rusakItems = barangList.filter(b => b.kondisi_barang !== 'Baik');
 
   // Late borrowings (tanggal_rencana_kembali is past 2026-06-28 and status is not 'Selesai')
   const currentDate = new Date('2026-06-28');
@@ -189,17 +189,17 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
           </div>
         </div>
 
-        {/* Stok Menipis */}
+        {/* Barang Rusak */}
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Stok Kritis</span>
-            <div className={`p-2 rounded-xl ${stokMenipis > 0 ? 'bg-rose-100 text-rose-600' : 'bg-gray-50 text-gray-400'}`}>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Barang Rusak</span>
+            <div className={`p-2 rounded-xl ${barangRusak > 0 ? 'bg-rose-100 text-rose-600' : 'bg-gray-50 text-gray-400'}`}>
               <AlertTriangle className="h-5 w-5" />
             </div>
           </div>
           <div className="mt-4">
-            <h3 className={`text-2xl font-bold ${stokMenipis > 0 ? 'text-rose-600' : 'text-gray-900'}`}>{stokMenipis}</h3>
-            <p className="text-xs text-rose-500 mt-1">Di Bawah Min</p>
+            <h3 className={`text-2xl font-bold ${barangRusak > 0 ? 'text-rose-600' : 'text-gray-900'}`}>{barangRusak}</h3>
+            <p className="text-xs text-rose-500 mt-1">Butuh Perbaikan</p>
           </div>
         </div>
       </div>
@@ -277,15 +277,15 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
       {/* Warnings & Audit Log Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
-        {/* Low Stock Watch */}
+        {/* Damaged Items Watch */}
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex flex-col">
           <div className="flex justify-between items-center mb-4">
             <div>
-              <h2 className="text-base font-bold text-gray-900">Peringatan Stok Menipis</h2>
-              <p className="text-xs text-gray-500">Daftar barang dengan stok di bawah nilai minimum</p>
+              <h2 className="text-base font-bold text-gray-900">Pemantauan Barang Rusak</h2>
+              <p className="text-xs text-gray-500">Daftar inventaris dengan kondisi rusak ringan/berat</p>
             </div>
             <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-600 border border-rose-100">
-              {stokMenipis} Barang Kritis
+              {barangRusak} Unit Rusak
             </span>
           </div>
 
@@ -295,28 +295,37 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
                 <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wider">
                   <th className="py-2.5 font-semibold">Kode</th>
                   <th className="py-2.5 font-semibold">Nama Barang</th>
-                  <th className="py-2.5 font-semibold text-center">Stok</th>
-                  <th className="py-2.5 font-semibold text-center">Minimum</th>
+                  <th className="py-2.5 font-semibold text-center">Lokasi</th>
+                  <th className="py-2.5 font-semibold text-center">Kondisi</th>
                   <th className="py-2.5 font-semibold text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
-                {lowStockItems.length === 0 ? (
+                {rusakItems.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-4 text-center text-gray-400 text-xs">
-                      Seluruh barang memiliki stok aman.
+                      Seluruh barang dalam kondisi Baik.
                     </td>
                   </tr>
                 ) : (
-                  lowStockItems.map(item => (
+                  rusakItems.map(item => (
                     <tr key={item.id_barang} className="hover:bg-gray-50/50 transition">
                       <td className="py-2.5 font-mono text-xs text-blue-600 font-semibold">{item.kode_barang}</td>
                       <td className="py-2.5 font-medium text-gray-900">{item.nama_barang}</td>
-                      <td className="py-2.5 text-center font-bold text-rose-600">{item.stok}</td>
-                      <td className="py-2.5 text-center text-gray-500 font-mono">{item.stok_minimum}</td>
+                      <td className="py-2.5 text-center text-gray-500 font-mono text-xs">{item.lokasi_penyimpanan}</td>
                       <td className="py-2.5 text-center">
-                        <span className="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                          {item.stok === 0 ? 'HABIS' : 'KRITIS'}
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          item.kondisi_barang === 'Rusak Ringan' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {item.kondisi_barang}
+                        </span>
+                      </td>
+                      <td className="py-2.5 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          item.status_ketersediaan === 'Tersedia' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                          'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                        }`}>
+                          {item.status_ketersediaan}
                         </span>
                       </td>
                     </tr>

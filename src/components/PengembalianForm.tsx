@@ -244,8 +244,8 @@ export default function PengembalianForm({ currentUser, onSuccess, onCancel }: P
         {loanHeader && borrowerInfo && (
           <div className="bg-blue-50/40 rounded-xl p-4 border border-blue-100 text-xs text-blue-900 grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <span className="font-semibold text-blue-700 uppercase">NIP / NIK Peminjam</span>
-              <p className="font-mono mt-0.5 text-gray-800 font-bold">{borrowerInfo.nip_nik}</p>
+              <span className="font-semibold text-blue-700 uppercase">Jabatan Peminjam</span>
+              <p className="mt-0.5 text-gray-800 font-bold">{borrowerInfo.jabatan}</p>
             </div>
             <div>
               <span className="font-semibold text-blue-700 uppercase">Nama Pegawai</span>

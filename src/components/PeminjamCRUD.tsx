@@ -18,9 +18,14 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   // Form states
-  const [nipNik, setNipNik] = useState('');
   const [namaLengkap, setNamaLengkap] = useState('');
   const [instansiUnitKerja, setInstansiUnitKerja] = useState('');
   const [jabatan, setJabatan] = useState('');
@@ -54,7 +59,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
     setModalTab('manual');
     setParsedItems([]);
     setExcelFileName('');
-    setNipNik('');
     setNamaLengkap('');
     setInstansiUnitKerja('');
     setJabatan('');
@@ -69,7 +73,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
     setModalTab('manual');
     setParsedItems([]);
     setExcelFileName('');
-    setNipNik(p.nip_nik);
     setNamaLengkap(p.nama_lengkap);
     setInstansiUnitKerja(p.instansi_unit_kerja);
     setJabatan(p.jabatan);
@@ -82,19 +85,12 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!nipNik.trim() || !namaLengkap.trim()) {
-      showNotification('error', 'NIP/NIK dan Nama Lengkap wajib diisi.');
+    if (!namaLengkap.trim()) {
+      showNotification('error', 'Nama Lengkap wajib diisi.');
       return;
     }
 
     const currentList = [...peminjamList];
-
-    // Check unique NIP/NIK
-    const duplicate = currentList.find(p => p.nip_nik === nipNik && p.id_peminjam !== editId);
-    if (duplicate) {
-      showNotification('error', `Pegawai dengan NIP/NIK "${nipNik}" sudah terdaftar.`);
-      return;
-    }
 
     if (editId !== null) {
       // Edit
@@ -102,7 +98,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
       if (index !== -1) {
         currentList[index] = {
           ...currentList[index],
-          nip_nik: nipNik,
           nama_lengkap: namaLengkap,
           instansi_unit_kerja: instansiUnitKerja,
           jabatan: jabatan,
@@ -111,7 +106,7 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
           alamat: alamat
         };
         OfficeInventoryDb.savePeminjam(currentList);
-        OfficeInventoryDb.logActivity(currentUser?.id_user || 1, `Edit Peminjam: "${namaLengkap}" (NIP: ${nipNik})`);
+        OfficeInventoryDb.logActivity(currentUser?.id_user || 1, `Edit Peminjam: "${namaLengkap}"`);
         showNotification('success', 'Data peminjam berhasil diperbarui!');
       }
     } else {
@@ -119,7 +114,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
       const nextId = currentList.length > 0 ? Math.max(...currentList.map(p => p.id_peminjam)) + 1 : 1;
       const newPeminjam: Peminjam = {
         id_peminjam: nextId,
-        nip_nik: nipNik,
         nama_lengkap: namaLengkap,
         instansi_unit_kerja: instansiUnitKerja,
         jabatan: jabatan,
@@ -129,7 +123,7 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
       };
       currentList.push(newPeminjam);
       OfficeInventoryDb.savePeminjam(currentList);
-      OfficeInventoryDb.logActivity(currentUser?.id_user || 1, `Tambah Peminjam Baru: "${namaLengkap}" (NIP: ${nipNik})`);
+      OfficeInventoryDb.logActivity(currentUser?.id_user || 1, `Tambah Peminjam Baru: "${namaLengkap}"`);
       showNotification('success', 'Peminjam baru berhasil terdaftar!');
     }
 
@@ -198,19 +192,11 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
           const rawAlamat = row['Alamat'] || row['alamat'] || '';
 
           const errors: string[] = [];
-          if (!rawNip.toString().trim()) {
-            errors.push('NIP/NIK wajib diisi');
-          }
           if (!rawNama.toString().trim()) {
             errors.push('Nama Lengkap wajib diisi');
           }
 
-          // Check duplicate NIP in DB
           const nipStr = rawNip.toString().trim();
-          const isDupInDb = currentPeminjamList.some(p => p.nip_nik === nipStr);
-          if (isDupInDb) {
-            errors.push('NIP/NIK sudah terdaftar di database');
-          }
 
           return {
             key: idx,
@@ -224,17 +210,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
             isValid: errors.length === 0,
             errorMessage: errors.join(', ')
           };
-        });
-
-        // Check duplicates within the Excel itself
-        mapped.forEach((item, index) => {
-          if (item.isValid) {
-            const dupIndex = mapped.findIndex((m, idx) => idx < index && m.nip_nik === item.nip_nik && m.isValid);
-            if (dupIndex !== -1) {
-              item.isValid = false;
-              item.errorMessage = 'Duplikat NIP/NIK dalam file Excel ini';
-            }
-          }
         });
 
         setParsedItems(mapped);
@@ -285,16 +260,16 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
     setExcelFileName('');
   };
 
-  const handleDelete = (id: number, name: string, nip: string) => {
+  const handleDelete = (id: number, name: string) => {
     if (currentUser?.role !== 'Admin') {
       showNotification('error', 'Hanya administrator yang memiliki wewenang menghapus peminjam.');
       return;
     }
 
-    if (window.confirm(`Apakah Anda yakin ingin menghapus peminjam "${name}" (${nip})?\nTindakan ini juga menghapus riwayat transaksinya.`)) {
+    if (window.confirm(`Apakah Anda yakin ingin menghapus peminjam "${name}"?\nTindakan ini juga menghapus riwayat transaksinya.`)) {
       const filtered = peminjamList.filter(p => p.id_peminjam !== id);
       OfficeInventoryDb.savePeminjam(filtered);
-      OfficeInventoryDb.logActivity(currentUser?.id_user || 1, `Hapus Peminjam: "${name}" (${nip})`);
+      OfficeInventoryDb.logActivity(currentUser?.id_user || 1, `Hapus Peminjam: "${name}"`);
       showNotification('success', 'Data peminjam berhasil dihapus.');
       loadData();
     }
@@ -302,10 +277,32 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
 
   const filteredPeminjam = peminjamList.filter(p => 
     p.nama_lengkap.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.nip_nik.includes(searchTerm) ||
-    p.instansi_unit_kerja.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.jabatan.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Pagination calculations
+  const totalItems = filteredPeminjam.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const paginatedPeminjam = filteredPeminjam.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const startItem = (currentPage - 1) * itemsPerPage + 1;
+  const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage < maxVisiblePages - 1) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-6 space-y-6 animate-fade-in">
@@ -346,7 +343,7 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
         <input 
           id="search-peminjam-input"
           type="text" 
-          placeholder="Cari NIP, nama lengkap, unit kerja, atau jabatan..."
+          placeholder="Cari nama lengkap atau jabatan..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
@@ -358,12 +355,9 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-150 text-xs font-bold text-gray-500 uppercase tracking-wider">
-              <th className="py-3 px-4">NIP / NIK</th>
               <th className="py-3 px-4">Nama Lengkap</th>
-              <th className="py-3 px-4">Instansi / Unit Kerja</th>
               <th className="py-3 px-4">Jabatan</th>
               <th className="py-3 px-4">Kontak</th>
-              <th className="py-3 px-4 text-center">Alamat</th>
               {(currentUser?.role === 'Admin' || currentUser?.role === 'Petugas') && (
                 <th className="py-3 px-4 text-center w-28">Aksi</th>
               )}
@@ -372,22 +366,19 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
           <tbody className="divide-y divide-gray-150 text-sm">
             {filteredPeminjam.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-gray-400 text-xs">
+                <td colSpan={4} className="py-8 text-center text-gray-400 text-xs">
                   Tidak ada peminjam yang terdaftar atau cocok dengan pencarian.
                 </td>
               </tr>
             ) : (
-              filteredPeminjam.map((p) => (
+              paginatedPeminjam.map((p) => (
                 <tr key={p.id_peminjam} className="hover:bg-gray-50/50 transition">
-                  <td className="py-3 px-4 font-mono font-semibold text-xs text-blue-700">{p.nip_nik}</td>
                   <td className="py-3 px-4 font-bold text-gray-900">{p.nama_lengkap}</td>
-                  <td className="py-3 px-4 font-medium text-gray-600">{p.instansi_unit_kerja}</td>
                   <td className="py-3 px-4 text-gray-500 font-medium">{p.jabatan}</td>
                   <td className="py-3 px-4">
                     <div className="text-xs font-semibold text-gray-800">{p.nomor_telepon}</div>
                     <div className="text-[10px] text-gray-400 font-mono">{p.email}</div>
                   </td>
-                  <td className="py-3 px-4 text-gray-500 max-w-xs truncate text-xs">{p.alamat}</td>
                   {(currentUser?.role === 'Admin' || currentUser?.role === 'Petugas') && (
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-center gap-1.5">
@@ -402,7 +393,7 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
                         {currentUser?.role === 'Admin' && (
                           <button 
                             id={`delete-peminjam-${p.id_peminjam}`}
-                            onClick={() => handleDelete(p.id_peminjam, p.nama_lengkap, p.nip_nik)}
+                            onClick={() => handleDelete(p.id_peminjam, p.nama_lengkap)}
                             title="Hapus Peminjam"
                             className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition"
                           >
@@ -418,6 +409,49 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalItems > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between pt-4 border-t border-gray-100 gap-4">
+          <div className="text-xs text-gray-500 font-medium">
+            Menampilkan <span className="font-bold text-gray-800">{startItem}</span> - <span className="font-bold text-gray-800">{endItem}</span> dari <span className="font-bold text-gray-800">{totalItems}</span> peminjam
+          </div>
+          
+          <div className="flex items-center gap-1.5">
+            <button
+              id="btn-prev-page"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1 cursor-pointer"
+            >
+              Sebelumnya
+            </button>
+            
+            {getPageNumbers().map(p => (
+              <button
+                key={p}
+                onClick={() => setCurrentPage(p)}
+                className={`w-8 h-8 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  currentPage === p 
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-200' 
+                    : 'border border-gray-200 text-gray-600 bg-white hover:bg-gray-50'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+            
+            <button
+              id="btn-next-page"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1 cursor-pointer"
+            >
+              Selanjutnya
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: Add / Edit Peminjam */}
       {isModalOpen && (
@@ -470,23 +504,9 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
             {(editId !== null || modalTab === 'manual') ? (
               <form onSubmit={handleSave}>
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  
-                  {/* NIP / NIK */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">NIP / NIK Pegawai</label>
-                    <input 
-                      id="peminjam-nip-input"
-                      type="text" 
-                      required
-                      placeholder="Contoh: 19850312..."
-                      value={nipNik}
-                      onChange={(e) => setNipNik(e.target.value)}
-                      className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono font-bold"
-                    />
-                  </div>
 
                   {/* Nama Lengkap */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 md:col-span-2">
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Nama Lengkap & Gelar</label>
                     <input 
                       id="peminjam-name-input"
@@ -496,20 +516,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
                       value={namaLengkap}
                       onChange={(e) => setNamaLengkap(e.target.value)}
                       className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-gray-800"
-                    />
-                  </div>
-
-                  {/* Instansi / Unit Kerja */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Instansi / Unit Kerja</label>
-                    <input 
-                      id="peminjam-instansi-input"
-                      type="text" 
-                      required
-                      placeholder="Contoh: Biro Hubungan Masyarakat"
-                      value={instansiUnitKerja}
-                      onChange={(e) => setInstansiUnitKerja(e.target.value)}
-                      className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
@@ -542,7 +548,7 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
                   </div>
 
                   {/* Email */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 md:col-span-2">
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Alamat Email Instansi</label>
                     <input 
                       id="peminjam-email-input"
@@ -552,19 +558,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
-                    />
-                  </div>
-
-                  {/* Alamat Rumah */}
-                  <div className="space-y-1.5 md:col-span-2">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Alamat Domisili Lengkap</label>
-                    <textarea 
-                      id="peminjam-address-input"
-                      rows={3}
-                      placeholder="Tuliskan nama jalan, blok, RT/RW, kelurahan, kecamatan, kota..."
-                      value={alamat}
-                      onChange={(e) => setAlamat(e.target.value)}
-                      className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-none"
                     />
                   </div>
 
@@ -603,11 +596,9 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
                         <br />
                         <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">NIP NIK</span>,{' '}
                         <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Nama Lengkap</span>,{' '}
-                        <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Instansi Unit Kerja</span>,{' '}
                         <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Jabatan</span>,{' '}
                         <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Nomor Telepon</span>,{' '}
-                        <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Email</span>,{' '}
-                        <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Alamat</span>
+                        <span className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[10px]">Email</span>
                       </p>
                     </div>
                     <button
@@ -695,7 +686,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
                               <th className="py-2.5 px-3 w-10 text-center text-gray-500 font-semibold">No</th>
                               <th className="py-2.5 px-3 text-gray-500 font-semibold">NIP / NIK</th>
                               <th className="py-2.5 px-3 text-gray-500 font-semibold">Nama Lengkap</th>
-                              <th className="py-2.5 px-3 text-gray-500 font-semibold">Instansi / Unit Kerja</th>
                               <th className="py-2.5 px-3 text-gray-500 font-semibold">Jabatan</th>
                               <th className="py-2.5 px-3 text-gray-500 font-semibold">Nomor Telepon</th>
                               <th className="py-2.5 px-3 text-gray-500 font-semibold">Email</th>
@@ -708,7 +698,6 @@ export default function PeminjamCRUD({ currentUser }: PeminjamCRUDProps) {
                                 <td className="py-2 px-3 text-center text-gray-400">{idx + 1}</td>
                                 <td className="py-2 px-3 font-mono font-semibold text-xs text-blue-700">{item.nip_nik || <span className="text-rose-500 italic">Kosong</span>}</td>
                                 <td className="py-2 px-3 font-semibold text-gray-900">{item.nama_lengkap || <span className="text-rose-500 italic">Kosong</span>}</td>
-                                <td className="py-2 px-3 text-gray-600">{item.instansi_unit_kerja}</td>
                                 <td className="py-2 px-3 text-gray-500">{item.jabatan}</td>
                                 <td className="py-2 px-3 text-gray-600">{item.nomor_telepon}</td>
                                 <td className="py-2 px-3 text-gray-500">{item.email}</td>
