@@ -22,7 +22,8 @@ import {
   Save,
   DownloadCloud,
   CheckCircle,
-  Sparkles
+  Sparkles,
+  Server
 } from 'lucide-react';
 import { OfficeInventoryDb } from '../dbMock';
 import { 
@@ -68,6 +69,122 @@ export default function DbBackupView({ currentUser }: DbBackupViewProps) {
   });
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
+
+  // Cloud SQL Integration States
+  const [cloudSqlStatus, setCloudSqlStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [cloudSqlInfo, setCloudSqlInfo] = useState<any>(null);
+  const [isCloudSqlSyncing, setIsCloudSqlSyncing] = useState(false);
+  const [cloudSqlError, setCloudSqlError] = useState<string | null>(null);
+  const [cloudSqlSuccess, setCloudSqlSuccess] = useState<string | null>(null);
+
+  const checkCloudSqlStatus = async () => {
+    setCloudSqlStatus('checking');
+    try {
+      const res = await fetch('/api/cloudsql/status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'Connected') {
+          setCloudSqlStatus('connected');
+          setCloudSqlInfo(data);
+          setCloudSqlError(null);
+        } else {
+          setCloudSqlStatus('disconnected');
+          setCloudSqlError(data.error || 'Terputus dari basis data Cloud SQL.');
+        }
+      } else {
+        setCloudSqlStatus('disconnected');
+        setCloudSqlError('Server backend tidak dapat dijangkau.');
+      }
+    } catch (err: any) {
+      setCloudSqlStatus('disconnected');
+      setCloudSqlError(err.message || String(err));
+    }
+  };
+
+  const handleCloudSqlExport = async () => {
+    setIsCloudSqlSyncing(true);
+    setCloudSqlError(null);
+    setCloudSqlSuccess(null);
+    try {
+      const data = {
+        kategori: OfficeInventoryDb.getKategori(),
+        barang: OfficeInventoryDb.getBarang(),
+        peminjam: OfficeInventoryDb.getPeminjam(),
+        users: OfficeInventoryDb.getUsers(),
+        peminjaman: OfficeInventoryDb.getPeminjaman(),
+        detail_peminjaman: OfficeInventoryDb.getDetailPeminjaman(),
+        pengembalian: OfficeInventoryDb.getPengembalian(),
+        audit_log: OfficeInventoryDb.getAuditLog(),
+        serah_terima: OfficeInventoryDb.getSerahTerima(),
+        detail_serah_terima: OfficeInventoryDb.getDetailSerahTerima(),
+        perbaikan: OfficeInventoryDb.getPerbaikan(),
+      };
+
+      const res = await fetch('/api/cloudsql/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        setCloudSqlSuccess(result.message || 'Ekspor berhasil!');
+        checkCloudSqlStatus();
+      } else {
+        const errData = await res.json();
+        setCloudSqlError(errData.error || 'Gagal mengekspor data ke Cloud SQL.');
+      }
+    } catch (err: any) {
+      setCloudSqlError(err.message || String(err));
+    } finally {
+      setIsCloudSqlSyncing(false);
+    }
+  };
+
+  const handleCloudSqlImport = async () => {
+    if (!window.confirm('PERINGATAN: Impor data akan menimpa seluruh database lokal Anda dengan data dari Cloud SQL. Apakah Anda yakin ingin melanjutkan?')) {
+      return;
+    }
+    setIsCloudSqlSyncing(true);
+    setCloudSqlError(null);
+    setCloudSqlSuccess(null);
+    try {
+      const res = await fetch('/api/cloudsql/import');
+      if (res.ok) {
+        const data = await res.json();
+        
+        if (data.kategori) OfficeInventoryDb.saveKategori(data.kategori);
+        if (data.barang) OfficeInventoryDb.saveBarang(data.barang);
+        if (data.peminjam) OfficeInventoryDb.savePeminjam(data.peminjam);
+        if (data.users) OfficeInventoryDb.saveUsers(data.users);
+        if (data.peminjaman) OfficeInventoryDb.savePeminjaman(data.peminjaman);
+        if (data.detail_peminjaman) OfficeInventoryDb.saveDetailPeminjaman(data.detail_peminjaman);
+        if (data.pengembalian) OfficeInventoryDb.savePengembalianList(data.pengembalian);
+        if (data.audit_log) OfficeInventoryDb.saveAuditLog(data.audit_log);
+        if (data.serah_terima) OfficeInventoryDb.saveSerahTerima(data.serah_terima);
+        if (data.detail_serah_terima) OfficeInventoryDb.saveDetailSerahTerima(data.detail_serah_terima);
+        if (data.perbaikan) OfficeInventoryDb.savePerbaikan(data.perbaikan);
+
+        setCloudSqlSuccess('Sinkronisasi selesai! Seluruh data lokal telah diperbarui dari Cloud SQL PostgreSQL.');
+        checkCloudSqlStatus();
+        
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        const errData = await res.json();
+        setCloudSqlError(errData.error || 'Gagal mengimpor data dari Cloud SQL.');
+      }
+    } catch (err: any) {
+      setCloudSqlError(err.message || String(err));
+    } finally {
+      setIsCloudSqlSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    checkCloudSqlStatus();
+  }, []);
 
   // Initialize auth
   useEffect(() => {
@@ -613,22 +730,211 @@ export default function DbBackupView({ currentUser }: DbBackupViewProps) {
         <p className="text-sm text-gray-500">Menu khusus administrator untuk mengunduh snapshot cadangan (SQL/JSON) atau mengunggah kembali file backup untuk memulihkan basis data.</p>
       </div>
 
-      {/* Google Sheets Integration Card */}
-      <div className="bg-gradient-to-br from-emerald-50/50 via-teal-50/20 to-white rounded-2xl border border-emerald-100 p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-emerald-100">
+      {/* Cloud SQL Integration Card */}
+      <div className="bg-gradient-to-br from-blue-50/50 via-indigo-50/20 to-white rounded-2xl border border-blue-100 p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-blue-100">
           <div>
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-emerald-600 animate-pulse" /> Integrasi & Sinkronisasi Google Sheets
+              <Server className="h-5 w-5 text-blue-600 animate-pulse" /> Integrasi Cloud SQL PostgreSQL
             </h3>
-            <p className="text-xs text-slate-500">Gunakan Google Spreadsheet sebagai database cloud tersinkronisasi untuk seluruh data inventaris SINVENT OFFICE.</p>
+            <p className="text-xs text-slate-500">Hubungkan data inventaris SINVENT OFFICE Anda ke basis data relasional Google Cloud SQL yang aman dan skalabel.</p>
           </div>
           <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${
-            googleUser ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600'
+            cloudSqlStatus === 'connected' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 
+            cloudSqlStatus === 'checking' ? 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse' :
+            'bg-slate-100 text-slate-600'
           }`}>
-            {googleUser ? '● Terhubung' : '● Terputus'}
+            {cloudSqlStatus === 'connected' ? '● Aktif (Cloud SQL)' : 
+             cloudSqlStatus === 'checking' ? '○ Memeriksa...' : 
+             '● Tidak Terhubung'}
           </span>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+          
+          {/* Left: Cloud SQL Account Connection & Status */}
+          <div className="space-y-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-100 space-y-3 shadow-xs">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status & Detail Koneksi</span>
+              
+              {cloudSqlStatus !== 'connected' ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-600 leading-normal">
+                    Layanan Cloud SQL belum terhubung atau server backend belum dimulai.
+                  </p>
+                  <button
+                    onClick={checkCloudSqlStatus}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-98"
+                  >
+                    <RefreshCw className="h-4 w-4" /> Cek Koneksi Cloud SQL
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="space-y-2 text-xs text-slate-600">
+                    <div className="flex justify-between border-b border-slate-50 pb-1.5">
+                      <span className="font-medium text-slate-400 text-[11px]">Database Name:</span>
+                      <span className="font-semibold text-slate-800 font-mono text-[11px]">{cloudSqlInfo?.database}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-1.5">
+                      <span className="font-medium text-slate-400 text-[11px]">Host / Proxy Path:</span>
+                      <span className="font-semibold text-slate-800 font-mono text-[11px] truncate max-w-[180px]" title={cloudSqlInfo?.host}>{cloudSqlInfo?.host}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-1.5">
+                      <span className="font-medium text-slate-400 text-[11px]">Database User:</span>
+                      <span className="font-semibold text-slate-800 font-mono text-[11px]">{cloudSqlInfo?.user}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 pt-2 border-t border-slate-50">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Ringkasan Tabel Cloud SQL:</span>
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex justify-between">
+                        <span className="text-slate-500">Kategori:</span>
+                        <span className="font-bold text-slate-800">{cloudSqlInfo?.counts?.kategori ?? 0}</span>
+                      </div>
+                      <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex justify-between">
+                        <span className="text-slate-500">Barang / Stok:</span>
+                        <span className="font-bold text-slate-800">{cloudSqlInfo?.counts?.barang ?? 0}</span>
+                      </div>
+                      <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex justify-between">
+                        <span className="text-slate-500">Peminjam:</span>
+                        <span className="font-bold text-slate-800">{cloudSqlInfo?.counts?.peminjam ?? 0}</span>
+                      </div>
+                      <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex justify-between">
+                        <span className="text-slate-500">Transaksi:</span>
+                        <span className="font-bold text-slate-800">{cloudSqlInfo?.counts?.peminjaman ?? 0}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={checkCloudSqlStatus}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[11px] font-bold transition-all border border-slate-100"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" /> Perbarui Status Koneksi
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Actions, Sync Status & Progress */}
+          <div className="bg-white p-5 rounded-xl border border-slate-100 flex flex-col justify-between shadow-xs">
+            <div className="space-y-4">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Aksi Basis Data Cloud SQL</span>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  onClick={handleCloudSqlExport}
+                  disabled={cloudSqlStatus !== 'connected' || isCloudSqlSyncing}
+                  className={`px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition flex flex-col items-center justify-center gap-1.5 text-center ${
+                    cloudSqlStatus !== 'connected' || isCloudSqlSyncing ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <Save className="h-5 w-5" />
+                  <span>Ekspor Ke Cloud SQL</span>
+                  <span className="text-[9px] font-normal opacity-80">Kirim data lokal ke PostgreSQL</span>
+                </button>
+
+                <button
+                  onClick={handleCloudSqlImport}
+                  disabled={cloudSqlStatus !== 'connected' || isCloudSqlSyncing}
+                  className={`px-4 py-3 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-md transition flex flex-col items-center justify-center gap-1.5 text-center ${
+                    cloudSqlStatus !== 'connected' || isCloudSqlSyncing ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <DownloadCloud className="h-5 w-5" />
+                  <span>Impor Dari Cloud SQL</span>
+                  <span className="text-[9px] font-normal opacity-80">Timpa data lokal dari PostgreSQL</span>
+                </button>
+              </div>
+
+              {/* Progress Panel */}
+              {isCloudSqlSyncing && (
+                <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl space-y-1.5">
+                  <div className="flex items-center gap-2 text-blue-800 text-xs font-bold">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-600" />
+                    <span>Sinkronisasi Sedang Berlangsung...</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Success Alert */}
+              {cloudSqlSuccess && (
+                <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl flex items-start gap-2">
+                  <CheckCircle className="h-4.5 w-4.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="text-xs font-bold text-emerald-800">
+                    {cloudSqlSuccess}
+                  </div>
+                </div>
+              )}
+
+              {/* Error Alert */}
+              {cloudSqlError && (
+                <div className="bg-rose-50 border border-rose-100 p-3 rounded-xl flex items-start gap-2">
+                  <AlertTriangle className="h-4.5 w-4.5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="text-xs font-medium text-rose-700">
+                    <strong className="block font-bold mb-0.5">Kesalahan Cloud SQL:</strong>
+                    {cloudSqlError}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="text-[9px] text-slate-400 leading-normal pt-4 border-t border-slate-50 mt-4">
+              <strong>Catatan Database Relasional:</strong> Cloud SQL menggunakan mesin database PostgreSQL asli yang sepenuhnya terintegrasi. Tindakan impor akan secara otomatis me-refresh aplikasi agar seluruh perubahan data termuat dengan sempurna di layar Anda.
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Google Sheets Integration Card - Disabled & Replaced */}
+      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200">
+          <div>
+            <h3 className="text-base font-bold text-slate-500 flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-slate-400" /> Integrasi Google Sheets (Dinonaktifkan)
+            </h3>
+            <p className="text-xs text-slate-400">Sinkronisasi eksternal ke Google Spreadsheet telah dinonaktifkan sesuai kebutuhan sistem baru.</p>
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-200 text-slate-500 border border-slate-300">
+            ● Disabled
+          </span>
+        </div>
+
+        <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl space-y-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-blue-600 rounded-xl text-white shrink-0">
+              <Database className="h-5 w-5" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-slate-900">Sinkronisasi Otomatis PostgreSQL Cloud SQL Aktif</h4>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Aplikasi Anda sekarang dikonfigurasi untuk secara otomatis menyimpan dan menyinkronkan seluruh perubahan data (kategori, barang, peminjam, transaksi, perbaikan, jejak audit log, dll.) langsung ke <strong>Integrasi Cloud SQL PostgreSQL</strong> secara real-time.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <span className="px-2.5 py-1 bg-white border border-blue-200 text-blue-800 text-[10px] font-bold uppercase tracking-wider rounded-lg flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Real-time Auto-save Aktif
+            </span>
+            <span className="px-2.5 py-1 bg-white border border-blue-200 text-blue-800 text-[10px] font-bold uppercase tracking-wider rounded-lg flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
+              Database PostgreSQL Berkinerja Tinggi
+            </span>
+          </div>
+        </div>
+
+        <div className="text-[10px] text-slate-400 leading-normal pt-2">
+          <strong>Catatan Sistem:</strong> Anda tidak perlu lagi melakukan ekspor atau impor manual ke Google Sheets. Seluruh riwayat transaksi dan data master tersimpan dengan aman, konsisten, dan tahan lama di basis data relasional Cloud SQL.
+        </div>
+      </div>
+
+      {/* Hidden legacy Google Sheets controls to satisfy bindings and imports */}
+      <div className="hidden">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
           
           {/* Left: Google Account Connection & Status */}
