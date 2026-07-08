@@ -75,6 +75,13 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
 
+  // PostgreSQL Cloud SQL Auto-sync States
+  const [isSyncingInitial, setIsSyncingInitial] = useState(true);
+  const [syncStatusMsg, setSyncStatusMsg] = useState('Menghubungkan ke PostgreSQL Cloud SQL...');
+  const [updateKey, setUpdateKey] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('Sesaat yang lalu');
+  const [isSyncingManual, setIsSyncingManual] = useState<boolean>(false);
+
   // Login Modal & Form States
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [pendingTab, setPendingTab] = useState<'dashboard' | 'barang' | 'kategori' | 'peminjam' | 'transaksi' | 'pengembalian' | 'riwayat' | 'laporan' | 'audit' | 'backup' | 'php' | 'account' | 'serah_terima' | 'perbaikan'>('dashboard');
@@ -82,6 +89,195 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginSuccess, setLoginSuccess] = useState('');
+
+  // Fetch initial database state from Cloud SQL on mount
+  useEffect(() => {
+    async function loadInitialDb() {
+      try {
+        setSyncStatusMsg('Memeriksa konektivitas Cloud SQL PostgreSQL...');
+        const statusRes = await fetch(`/api/cloudsql/status?t=${Date.now()}`);
+        if (!statusRes.ok) {
+          throw new Error('Database server tidak merespons status.');
+        }
+        const statusData = await statusRes.json();
+        
+        if (statusData.status === 'Connected') {
+          const counts = statusData.counts || {};
+          const isDbEmpty = !counts.kategori && !counts.barang && !counts.peminjam && !counts.users;
+          
+          if (isDbEmpty) {
+            setSyncStatusMsg('Sinkronisasi pertama kali: Mengunggah basis data lokal awal ke Cloud SQL...');
+            // Cloud SQL is completely empty, so we seed it with our local default/current data
+            const seedData = {
+              kategori: OfficeInventoryDb.getKategori(),
+              barang: OfficeInventoryDb.getBarang(),
+              peminjam: OfficeInventoryDb.getPeminjam(),
+              users: OfficeInventoryDb.getUsers(),
+              peminjaman: OfficeInventoryDb.getPeminjaman(),
+              detail_peminjaman: OfficeInventoryDb.getDetailPeminjaman(),
+              pengembalian: OfficeInventoryDb.getPengembalian(),
+              audit_log: OfficeInventoryDb.getAuditLog(),
+              serah_terima: OfficeInventoryDb.getSerahTerima(),
+              detail_serah_terima: OfficeInventoryDb.getDetailSerahTerima(),
+              perbaikan: OfficeInventoryDb.getPerbaikan(),
+            };
+            
+            const seedRes = await fetch('/api/cloudsql/export', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(seedData),
+            });
+            if (!seedRes.ok) {
+              console.error('Failed to seed empty Cloud SQL database:', await seedRes.text());
+            } else {
+              console.log('Successfully seeded Cloud SQL database with initial local data.');
+            }
+          } else {
+            setSyncStatusMsg('Menyinkronkan data terbaru dari Cloud SQL PostgreSQL...');
+            const importRes = await fetch(`/api/cloudsql/import?t=${Date.now()}`);
+            if (importRes.ok) {
+              const importedData = await importRes.json();
+              
+              const saveToLocal = (key: string, dataArray: any[]) => {
+                if (dataArray && Array.isArray(dataArray)) {
+                  localStorage.setItem(key, JSON.stringify(dataArray));
+                }
+              };
+              
+              saveToLocal('inv_kategori', importedData.kategori);
+              saveToLocal('inv_barang', importedData.barang);
+              saveToLocal('inv_peminjam', importedData.peminjam);
+              saveToLocal('inv_users', importedData.users);
+              saveToLocal('inv_peminjaman', importedData.peminjaman);
+              saveToLocal('inv_detail_peminjaman', importedData.detail_peminjaman);
+              saveToLocal('inv_pengembalian', importedData.pengembalian);
+              saveToLocal('inv_audit_log', importedData.audit_log);
+              saveToLocal('inv_serah_terima', importedData.serah_terima);
+              saveToLocal('inv_detail_serah_terima', importedData.detail_serah_terima);
+              saveToLocal('inv_perbaikan', importedData.perbaikan);
+              
+              const nowStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+              setLastSyncTime(nowStr);
+              console.log('Successfully imported and synchronized data from Cloud SQL PostgreSQL.');
+            } else {
+              console.error('Failed to import data from Cloud SQL:', await importRes.text());
+            }
+          }
+        } else {
+          console.warn('Cloud SQL is disconnected in status check. Using offline local state.');
+        }
+      } catch (err) {
+        console.error('Initial Cloud SQL load failed, falling back to offline local storage:', err);
+      } finally {
+        setIsSyncingInitial(false);
+      }
+    }
+    
+    loadInitialDb();
+  }, []);
+
+  // Poll Cloud SQL PostgreSQL database for updates periodically (Real-time Background Synchronization)
+  useEffect(() => {
+    let pollInterval: any = null;
+
+    async function checkAndSyncFromDb() {
+      // Only poll when browser window/tab is active and visible
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
+      try {
+        const importRes = await fetch(`/api/cloudsql/import?t=${Date.now()}`);
+        if (importRes.ok) {
+          const importedData = await importRes.json();
+          
+          let hasChanges = false;
+          
+          const checkAndSave = (key: string, cloudData: any[]) => {
+            if (!cloudData || !Array.isArray(cloudData)) return;
+            const localDataStr = localStorage.getItem(key);
+            const cloudDataStr = JSON.stringify(cloudData);
+            if (localDataStr !== cloudDataStr) {
+              localStorage.setItem(key, cloudDataStr);
+              hasChanges = true;
+            }
+          };
+          
+          checkAndSave('inv_kategori', importedData.kategori);
+          checkAndSave('inv_barang', importedData.barang);
+          checkAndSave('inv_peminjam', importedData.peminjam);
+          checkAndSave('inv_users', importedData.users);
+          checkAndSave('inv_peminjaman', importedData.peminjaman);
+          checkAndSave('inv_detail_peminjaman', importedData.detail_peminjaman);
+          checkAndSave('inv_pengembalian', importedData.pengembalian);
+          checkAndSave('inv_audit_log', importedData.audit_log);
+          checkAndSave('inv_serah_terima', importedData.serah_terima);
+          checkAndSave('inv_detail_serah_terima', importedData.detail_serah_terima);
+          checkAndSave('inv_perbaikan', importedData.perbaikan);
+          
+          const nowStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setLastSyncTime(nowStr);
+
+          if (hasChanges) {
+            console.log('Detected cloud database updates! Refreshing UI view...');
+            setUpdateKey(prev => prev + 1);
+          }
+        }
+      } catch (err) {
+        console.error('Background database poll failed:', err);
+      }
+    }
+
+    // Delay start of polling to avoid overlapping with initial mount load
+    const startTimeout = setTimeout(() => {
+      // Poll every 8 seconds for responsive cross-device updates
+      pollInterval = setInterval(checkAndSyncFromDb, 8000);
+    }, 5000);
+
+    return () => {
+      clearTimeout(startTimeout);
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, []);
+
+  // Expose a manual sync trigger for the Dashboard and other components
+  const triggerManualSync = async (): Promise<boolean> => {
+    try {
+      const importRes = await fetch(`/api/cloudsql/import?t=${Date.now()}`);
+      if (importRes.ok) {
+        const importedData = await importRes.json();
+        
+        const saveToLocal = (key: string, dataArray: any[]) => {
+          if (dataArray && Array.isArray(dataArray)) {
+            localStorage.setItem(key, JSON.stringify(dataArray));
+          }
+        };
+        
+        saveToLocal('inv_kategori', importedData.kategori);
+        saveToLocal('inv_barang', importedData.barang);
+        saveToLocal('inv_peminjam', importedData.peminjam);
+        saveToLocal('inv_users', importedData.users);
+        saveToLocal('inv_peminjaman', importedData.peminjaman);
+        saveToLocal('inv_detail_peminjaman', importedData.detail_peminjaman);
+        saveToLocal('inv_pengembalian', importedData.pengembalian);
+        saveToLocal('inv_audit_log', importedData.audit_log);
+        saveToLocal('inv_serah_terima', importedData.serah_terima);
+        saveToLocal('inv_detail_serah_terima', importedData.detail_serah_terima);
+        saveToLocal('inv_perbaikan', importedData.perbaikan);
+        
+        const nowStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLastSyncTime(nowStr);
+        setUpdateKey(prev => prev + 1);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Manual sync failed:', err);
+      return false;
+    }
+  };
 
   // Automatically sync to Cloud SQL PostgreSQL whenever write operations occur
   useEffect(() => {
@@ -169,6 +365,38 @@ export default function App() {
   const handleLogout = () => {
     // No-op as login is removed
   };
+
+  if (isSyncingInitial) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full text-center space-y-6 animate-fade-in">
+          <div className="flex justify-center">
+            <div className="p-4 bg-blue-600/10 text-blue-500 rounded-3xl border border-blue-500/20 animate-pulse">
+              <Database className="h-12 w-12" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl font-extrabold tracking-tight text-white uppercase">SINVENT OFFICE</h1>
+            <p className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Sistem Inventaris Kantor & Cloud Sync</p>
+          </div>
+          
+          <div className="p-5 bg-slate-800/50 border border-slate-800 rounded-2xl space-y-4">
+            <div className="flex items-center justify-center gap-3">
+              <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />
+              <span className="text-sm font-medium text-slate-300">{syncStatusMsg}</span>
+            </div>
+            <div className="w-full bg-slate-700/50 rounded-full h-1.5 overflow-hidden">
+              <div className="bg-blue-500 h-1.5 rounded-full animate-pulse w-3/4"></div>
+            </div>
+          </div>
+          
+          <p className="text-[10px] text-slate-500 leading-normal">
+            Sistem mendeteksi database terhubung. Data disinkronkan secara real-time dengan PostgreSQL di Cloud SQL untuk memastikan konsistensi multi-user.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-gray-800 selection:bg-blue-600 selection:text-white">
@@ -427,10 +655,7 @@ export default function App() {
 
         </nav>
 
-        {/* Corporate Footer */}
-        <div className="p-4 border-t border-slate-800 text-[10px] text-slate-500 text-center font-semibold uppercase tracking-wider">
-          © 2026 Kementerian RI
-        </div>
+
       </aside>
 
       {/* MOBILE BAR HEADER */}
@@ -632,13 +857,17 @@ export default function App() {
         </header>
 
         {/* WORKSPACE CONTENT MAIN COMPONENT MOUNT */}
-        <main className="flex-1 p-4 md:p-6 space-y-6 overflow-y-auto max-w-[1440px] w-full mx-auto">
+        <main className="flex-1 p-4 md:p-6 space-y-6 overflow-y-auto max-w-[1440px] w-full mx-auto" key={updateKey}>
           
           {/* TAB BINDER SWITCH MOUNT */}
           {activeTab === 'dashboard' && (
             <Dashboard 
               currentUser={activeUser}
               setActiveTab={(tab) => setActiveTab(tab as any)}
+              triggerSync={triggerManualSync}
+              isSyncingManual={isSyncingManual}
+              setIsSyncingManual={setIsSyncingManual}
+              lastSyncTime={lastSyncTime}
             />
           )}
 

@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Calendar, FileText, CheckCircle, AlertCircle, ShoppingBag, PlusCircle, ArrowLeft, Paperclip, Eraser, PenTool, Search } from 'lucide-react';
+import { Plus, Trash2, Calendar, FileText, CheckCircle, AlertCircle, ShoppingBag, PlusCircle, ArrowLeft, Paperclip, Eraser, PenTool, Search, Camera, Upload, Image } from 'lucide-react';
 import { OfficeInventoryDb } from '../dbMock';
 import { Peminjam, Barang } from '../types';
 
@@ -50,6 +50,8 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
   const [keperluan, setKeperluan] = useState('');
   const [keterangan, setKeterangan] = useState('');
   const [dokumenPendukung, setDokumenPendukung] = useState<string>('');
+  const [fotoPeminjaman, setFotoPeminjaman] = useState<string>('');
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState<boolean>(false);
 
   // Dynamic rows state
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
@@ -57,7 +59,7 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
   // Current adding item dropdown selected
   const [currentBarangId, setCurrentBarangId] = useState<string>('');
   const [searchBarangTerm, setSearchBarangTerm] = useState<string>('');
-  const [currentJml, setCurrentJml] = useState<number>(1);
+  const [currentJml, setCurrentJml] = useState<number | string>(1);
   const [currentKondisi, setCurrentKondisi] = useState<'Baik' | 'Rusak Ringan' | 'Rusak Berat'>('Baik');
   const [currentKet, setCurrentKet] = useState<string>('');
 
@@ -183,13 +185,14 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
     }
 
     // Check stock
-    if (currentJml <= 0) {
+    const qtyNum = Number(currentJml);
+    if (!currentJml || isNaN(qtyNum) || qtyNum <= 0) {
       setErrorMsg('Jumlah pinjam harus minimal 1 unit.');
       return;
     }
 
-    if (currentJml > selectedGoods.stok) {
-      setErrorMsg(`Jumlah pinjam (${currentJml}) melebihi stok yang tersedia (${selectedGoods.stok}) untuk barang "${selectedGoods.nama_barang}".`);
+    if (qtyNum > selectedGoods.stok) {
+      setErrorMsg(`Jumlah pinjam (${qtyNum}) melebihi stok yang tersedia (${selectedGoods.stok}) untuk barang "${selectedGoods.nama_barang}".`);
       return;
     }
 
@@ -198,7 +201,7 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
       nama_barang: selectedGoods.nama_barang,
       kode_barang: selectedGoods.kode_barang,
       stok_tersedia: selectedGoods.stok,
-      jumlah_pinjam: currentJml,
+      jumlah_pinjam: qtyNum,
       kondisi_pinjam: currentKondisi,
       keterangan: currentKet || 'Digunakan sesuai keperluan'
     };
@@ -222,6 +225,94 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
     if (file) {
       setDokumenPendukung(file.name);
     }
+  };
+
+  const handlePhotoDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingPhoto(true);
+  };
+
+  const handlePhotoDragLeave = () => {
+    setIsDraggingPhoto(false);
+  };
+
+  const handlePhotoDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingPhoto(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processPhotoFile(file);
+    }
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processPhotoFile(file);
+    }
+  };
+
+  const processPhotoFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setErrorMsg('File harus berupa foto/gambar (JPG, PNG, JPEG, WEBP).');
+      return;
+    }
+    if (file.size > 15728640) { // 15MB absolute limit to prevent browser crash
+      setErrorMsg('Ukuran file terlalu besar. Maksimal 15 MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Create canvas for compression
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // Max dimensions for responsive high quality (1200px is perfect for BMN documentation)
+        const MAX_WIDTH = 1200;
+        const MAX_HEIGHT = 1200;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Compress to JPEG with 0.75 quality - this guarantees the size is well under 1MB (typically ~100-250KB)
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+          setFotoPeminjaman(compressedDataUrl);
+          setErrorMsg(null);
+        } else {
+          // Fallback if canvas context fails
+          setFotoPeminjaman(event.target?.result as string);
+          setErrorMsg(null);
+        }
+      };
+      img.onerror = () => {
+        setErrorMsg('Gagal memproses file gambar.');
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = () => {
+      setErrorMsg('Gagal membaca file.');
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -270,7 +361,8 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
         keterangan: item.keterangan
       })),
       currentUser?.id_user || 2, // Default to active petugas/user
-      signatureBase64
+      signatureBase64,
+      fotoPeminjaman
     );
 
     if (response.success) {
@@ -484,7 +576,7 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
             
             {/* Barang Selector with Autocomplete */}
-            <div className="space-y-1 md:col-span-5 relative">
+            <div className="space-y-1 md:col-span-6 relative">
               <label className="text-[10px] font-bold text-blue-800 uppercase block">Cari & Pilih Barang</label>
               <div className="relative">
                 <input 
@@ -546,19 +638,6 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
                   </div>
                 </>
               )}
-            </div>
-
-            {/* Jumlah Pinjam */}
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-[10px] font-bold text-blue-800 uppercase">Jumlah</label>
-              <input 
-                id="row-qty-input"
-                type="number"
-                min={1}
-                value={currentJml}
-                onChange={(e) => setCurrentJml(Math.max(1, Number(e.target.value)))}
-                className="w-full px-3 py-1.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold font-mono"
-              />
             </div>
 
             {/* Kondisi saat pinjam */}
@@ -663,52 +742,114 @@ export default function TransaksiForm({ currentUser, onSuccess, onCancel }: Tran
           </div>
         </div>
 
-        {/* SECTION: Tanda Tangan Digital */}
-        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
-            <div>
+        {/* SECTION: Foto Peminjaman & Tanda Tangan Digital */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          
+          {/* Foto Peminjaman Box with Drag & Drop */}
+          <div 
+            className={`border rounded-2xl p-4 transition-all duration-200 flex flex-col justify-between min-h-[260px] ${
+              isDraggingPhoto ? 'border-blue-500 bg-blue-50/50 scale-[1.01] shadow-md shadow-blue-500/5' : 'border-slate-200/80 bg-slate-50'
+            }`}
+            onDragOver={handlePhotoDragOver}
+            onDragLeave={handlePhotoDragLeave}
+            onDrop={handlePhotoDrop}
+          >
+            <div className="border-b border-slate-200 pb-2.5">
               <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                <PenTool className="h-4 w-4 text-blue-600" /> Tanda Tangan Digital Peminjam
+                <Camera className="h-4 w-4 text-blue-600" /> Foto Bukti Peminjaman / Serah Terima
               </h4>
-              <p className="text-[11px] text-gray-500">Gunakan mouse, trackpad, atau layar sentuh untuk menggambar tanda tangan di area putih di bawah</p>
+              <p className="text-[11px] text-gray-500">Unggah dokumentasi serah terima barang BMN asli sebagai bukti fisik</p>
             </div>
-            <div>
-              {hasSigned ? (
-                <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Tanda Tangan Terbaca
-                </span>
+
+            <div className="flex-1 flex flex-col justify-center py-3">
+              {fotoPeminjaman ? (
+                <div className="relative border border-slate-200 rounded-xl overflow-hidden bg-white shadow-inner h-36 flex items-center justify-center p-2 group">
+                  <img src={fotoPeminjaman} alt="Foto Peminjaman" className="max-h-full max-w-full object-contain rounded-lg" />
+                  <button
+                    type="button"
+                    onClick={() => setFotoPeminjaman('')}
+                    className="absolute top-2 right-2 p-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-full transition shadow-md opacity-90 hover:opacity-100 cursor-pointer"
+                    title="Hapus foto"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ) : (
-                <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border border-amber-200">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
-                  Belum Ditandatangani
-                </span>
+                <div className="relative border-2 border-dashed border-slate-300 rounded-xl p-4 bg-white hover:bg-slate-50/80 transition text-center flex flex-col items-center justify-center h-36 cursor-pointer group">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoChange}
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  />
+                  <div className="space-y-1.5 flex flex-col items-center pointer-events-none">
+                    <div className="p-2.5 bg-blue-50 rounded-full text-blue-600 group-hover:scale-105 transition-transform">
+                      <Upload className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-700">Tarik & Lepas Foto di sini</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">atau <span className="text-blue-600 font-bold underline">Cari berkas</span> (Otomatis Kompres &lt; 1MB)</p>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-          
-          <div className="relative border border-slate-300 rounded-xl overflow-hidden bg-white shadow-inner">
-            <canvas
-              ref={canvasRef}
-              onPointerDown={startDrawing}
-              onPointerMove={draw}
-              onPointerUp={stopDrawing}
-              onPointerCancel={stopDrawing}
-              className="w-full h-40 cursor-crosshair bg-white touch-none"
-              style={{ display: 'block' }}
-            />
+            
+            <div className="text-[10px] text-gray-400 italic text-center pt-1.5 border-t border-slate-200">
+              Format berkas: JPG, JPEG, PNG, WEBP
+            </div>
           </div>
 
-          <div className="flex justify-between items-center text-xs">
-            <span className="text-gray-400 italic">Kolom di atas merupakan dokumen bukti serah terima resmi</span>
-            <button
-              type="button"
-              onClick={clearSignature}
-              className="px-3 py-1.5 bg-white hover:bg-slate-100 text-rose-600 hover:text-rose-700 border border-slate-200 hover:border-slate-300 rounded-xl transition font-bold flex items-center gap-1 shadow-xs text-xs"
-            >
-              <Eraser className="h-3.5 w-3.5" /> Bersihkan Area
-            </button>
+          {/* Tanda Tangan Digital Box */}
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 flex flex-col justify-between min-h-[260px]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <PenTool className="h-4 w-4 text-blue-600" /> Tanda Tangan Digital Peminjam
+                </h4>
+                <p className="text-[11px] text-gray-500">Gunakan kursor atau layar sentuh untuk menggambar tanda tangan</p>
+              </div>
+              <div className="shrink-0">
+                {hasSigned ? (
+                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                    <span className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse"></span>
+                    SIGNED
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border border-amber-200">
+                    <span className="h-1 w-1 rounded-full bg-amber-400"></span>
+                    PENDING
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex-1 my-3">
+              <div className="relative border border-slate-300 rounded-xl overflow-hidden bg-white shadow-inner h-32">
+                <canvas
+                  ref={canvasRef}
+                  onPointerDown={startDrawing}
+                  onPointerMove={draw}
+                  onPointerUp={stopDrawing}
+                  onPointerCancel={stopDrawing}
+                  className="w-full h-full cursor-crosshair bg-white touch-none"
+                  style={{ display: 'block' }}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-[11px] pt-1.5 border-t border-slate-200">
+              <span className="text-gray-400 italic">Bukti otentik kesepakatan peminjaman</span>
+              <button
+                type="button"
+                onClick={clearSignature}
+                className="px-2.5 py-1 bg-white hover:bg-slate-100 text-rose-600 hover:text-rose-700 border border-slate-200 hover:border-slate-300 rounded-lg transition font-bold flex items-center gap-1 shadow-2xs text-[10px] cursor-pointer"
+              >
+                <Eraser className="h-3 w-3" /> Bersihkan
+              </button>
+            </div>
           </div>
+
         </div>
 
         {/* Submit Actions */}

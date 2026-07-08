@@ -61,6 +61,7 @@ export interface Peminjaman {
   created_by: number; // id_user
   created_at: string;
   tanda_tangan?: string; // Base64 signature image
+  foto_peminjaman?: string; // Base64 image of borrowing process
 }
 
 export interface DetailPeminjaman {

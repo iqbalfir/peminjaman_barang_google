@@ -4,27 +4,76 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Package, CheckCircle, ArrowUpRight, Users, AlertTriangle, Clock, History, TrendingUp, HelpCircle } from 'lucide-react';
+import { Package, CheckCircle, ArrowUpRight, Users, AlertTriangle, Clock, History, TrendingUp, HelpCircle, Database, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { OfficeInventoryDb } from '../dbMock';
-import { Barang, Peminjaman, AuditLog, Peminjam } from '../types';
+import { Barang, Peminjaman, AuditLog, Peminjam, DetailPeminjaman } from '../types';
 
 interface DashboardProps {
   currentUser: { id_user: number; nama_user: string; role: string } | null;
   setActiveTab: (tab: string) => void;
+  triggerSync?: () => Promise<boolean>;
+  isSyncingManual?: boolean;
+  setIsSyncingManual?: (val: boolean) => void;
+  lastSyncTime?: string;
 }
 
-export default function Dashboard({ currentUser, setActiveTab }: DashboardProps) {
+export default function Dashboard({ 
+  currentUser, 
+  setActiveTab, 
+  triggerSync, 
+  isSyncingManual, 
+  setIsSyncingManual, 
+  lastSyncTime = 'Sesaat yang lalu' 
+}: DashboardProps) {
   const [barangList, setBarangList] = useState<Barang[]>([]);
   const [peminjamanList, setPeminjamanList] = useState<Peminjaman[]>([]);
   const [peminjamList, setPeminjamList] = useState<Peminjam[]>([]);
+  const [detailPeminjamanList, setDetailPeminjamanList] = useState<DetailPeminjaman[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     setBarangList(OfficeInventoryDb.getBarang());
     setPeminjamanList(OfficeInventoryDb.getPeminjaman());
     setPeminjamList(OfficeInventoryDb.getPeminjam());
+    setDetailPeminjamanList(OfficeInventoryDb.getDetailPeminjaman());
     setAuditLogs(OfficeInventoryDb.getAuditLog().slice(0, 5));
   }, []);
+
+  const handleManualSync = async () => {
+    if (setIsSyncingManual) {
+      setIsSyncingManual(true);
+    }
+    setIsSyncing(true);
+    setSyncStatus('idle');
+    
+    try {
+      if (triggerSync) {
+        const ok = await triggerSync();
+        if (ok) {
+          setSyncStatus('success');
+          // Reload internal state from LocalStorage after sync completes successfully
+          setBarangList(OfficeInventoryDb.getBarang());
+          setPeminjamanList(OfficeInventoryDb.getPeminjaman());
+          setPeminjamList(OfficeInventoryDb.getPeminjam());
+          setDetailPeminjamanList(OfficeInventoryDb.getDetailPeminjaman());
+          setAuditLogs(OfficeInventoryDb.getAuditLog().slice(0, 5));
+        } else {
+          setSyncStatus('error');
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setSyncStatus('error');
+    } finally {
+      setIsSyncing(false);
+      if (setIsSyncingManual) {
+        setIsSyncingManual(false);
+      }
+    }
+  };
 
   // Calculations
   const totalBarang = barangList.length;
@@ -34,8 +83,26 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
   const transaksiAktif = peminjamanList.filter(p => p.status === 'Dipinjam' || p.status === 'Sebagian Kembali').length;
   const barangRusak = barangList.filter(b => b.kondisi_barang !== 'Baik').length;
 
-  // Damaged items
+  // Damaged items with pagination (maksimal 10 unit per halaman)
   const rusakItems = barangList.filter(b => b.kondisi_barang !== 'Baik');
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(rusakItems.length / itemsPerPage) || 1;
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedRusakItems = rusakItems.slice((safeCurrentPage - 1) * itemsPerPage, safeCurrentPage * itemsPerPage);
+  const startItem = rusakItems.length === 0 ? 0 : (safeCurrentPage - 1) * itemsPerPage + 1;
+  const endItem = Math.min(safeCurrentPage * itemsPerPage, rusakItems.length);
+
+  // Limited visible page numbers
+  const maxVisiblePages = 5;
+  let startPage = Math.max(1, safeCurrentPage - 2);
+  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+  if (endPage - startPage < maxVisiblePages - 1) {
+    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  }
+  const visiblePages = [];
+  for (let i = startPage; i <= endPage; i++) {
+    visiblePages.push(i);
+  }
 
   // Late borrowings (tanggal_rencana_kembali is past 2026-06-28 and status is not 'Selesai')
   const currentDate = new Date('2026-06-28');
@@ -44,23 +111,96 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
     return rDate < currentDate && p.status !== 'Selesai';
   });
 
-  // Chart 1: Monthly loan counts (Jan - Jun 2026)
+  // Find the year dynamically based on available loans or default to current local year
+  const currentYear = (() => {
+    if (peminjamanList.length === 0) return new Date().getFullYear();
+    const years = peminjamanList
+      .map(p => {
+        if (!p.tanggal_pinjam) return 0;
+        const parts = p.tanggal_pinjam.split('-');
+        return parts.length > 0 ? parseInt(parts[0], 10) : 0;
+      })
+      .filter(y => !isNaN(y) && y > 0);
+    return years.length > 0 ? Math.max(...years) : new Date().getFullYear();
+  })();
+
+  // Year selector state (defaults to calculated currentYear)
+  const [selectedYear, setSelectedYear] = useState<number>(2026);
+
+  // Available years from the data
+  const availableYears = (() => {
+    const yearsSet = new Set<number>();
+    yearsSet.add(new Date().getFullYear()); // Always allow current year
+    peminjamanList.forEach(p => {
+      if (p.tanggal_pinjam) {
+        const parts = p.tanggal_pinjam.split('-');
+        if (parts.length > 0) {
+          const y = parseInt(parts[0], 10);
+          if (!isNaN(y) && y > 0) {
+            yearsSet.add(y);
+          }
+        }
+      }
+    });
+    return Array.from(yearsSet).sort((a, b) => b - a);
+  })();
+
+  // Synchronize selectedYear when currentYear or availableYears changes
+  useEffect(() => {
+    if (availableYears.includes(currentYear)) {
+      setSelectedYear(currentYear);
+    } else if (availableYears.length > 0) {
+      setSelectedYear(availableYears[0]);
+    }
+  }, [peminjamanList, currentYear]);
+
+  // Chart 1: Monthly loan counts calculated dynamically
+  const getMonthlyLoanCount = (monthNum: number, yearNum: number) => {
+    return peminjamanList.filter(p => {
+      if (!p.tanggal_pinjam) return false;
+      const dateParts = p.tanggal_pinjam.split('-');
+      if (dateParts.length < 2) return false;
+      const year = parseInt(dateParts[0], 10);
+      const month = parseInt(dateParts[1], 10);
+      return year === yearNum && month === monthNum;
+    }).length;
+  };
+
   const monthlyData = [
-    { month: 'Jan', count: 5 },
-    { month: 'Feb', count: 8 },
-    { month: 'Mar', count: 12 },
-    { month: 'Apr', count: 14 },
-    { month: 'May', count: 19 },
-    { month: 'Jun', count: 26 }, // High activity month
+    { month: 'Jan', count: getMonthlyLoanCount(1, selectedYear) },
+    { month: 'Feb', count: getMonthlyLoanCount(2, selectedYear) },
+    { month: 'Mar', count: getMonthlyLoanCount(3, selectedYear) },
+    { month: 'Apr', count: getMonthlyLoanCount(4, selectedYear) },
+    { month: 'Mei', count: getMonthlyLoanCount(5, selectedYear) },
+    { month: 'Jun', count: getMonthlyLoanCount(6, selectedYear) },
+    { month: 'Jul', count: getMonthlyLoanCount(7, selectedYear) },
+    { month: 'Agt', count: getMonthlyLoanCount(8, selectedYear) },
+    { month: 'Sep', count: getMonthlyLoanCount(9, selectedYear) },
+    { month: 'Okt', count: getMonthlyLoanCount(10, selectedYear) },
+    { month: 'Nov', count: getMonthlyLoanCount(11, selectedYear) },
+    { month: 'Des', count: getMonthlyLoanCount(12, selectedYear) },
   ];
 
-  // Chart 2: Most Borrowed Goods
-  const topBorrowed = [
-    { name: 'Laptop Asus', count: 18 },
-    { name: 'Proyektor Epson', count: 15 },
-    { name: 'Kamera DSLR', count: 12 },
-    { name: 'Mobil Avanza', count: 9 },
-    { name: 'Kursi Jaring', count: 7 },
+  // Chart 2: Most Borrowed Goods calculated dynamically from detailPeminjamanList
+  const barangCounts: { [key: number]: number } = {};
+  detailPeminjamanList.forEach(dp => {
+    barangCounts[dp.id_barang] = (barangCounts[dp.id_barang] || 0) + dp.jumlah_pinjam;
+  });
+
+  const sortedBarang = Object.keys(barangCounts)
+    .map(idStr => {
+      const id = parseInt(idStr, 10);
+      const barang = barangList.find(b => b.id_barang === id);
+      return {
+        name: barang ? barang.nama_barang : `Barang ID ${id}`,
+        count: barangCounts[id]
+      };
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  const topBorrowed = sortedBarang.length > 0 ? sortedBarang : [
+    { name: 'Belum ada data peminjaman', count: 0 }
   ];
 
   return (
@@ -85,6 +225,62 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
             className="px-4 py-2 bg-blue-600 text-white rounded-xl font-medium shadow hover:bg-blue-500 transition text-sm flex items-center gap-1.5 border border-blue-500"
           >
             <History className="h-4 w-4" /> Catat Pengembalian
+          </button>
+        </div>
+      </div>
+
+      {/* Real-time Cloud SQL Sync Status Widget */}
+      <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl"></div>
+        <div className="flex items-center gap-4 relative z-10">
+          <div className={`p-3.5 rounded-2xl ${isSyncing ? 'bg-blue-600/25 text-blue-400' : 'bg-emerald-600/25 text-emerald-400'} border border-slate-700/50 shrink-0`}>
+            {isSyncing ? (
+              <RefreshCw className="h-6 w-6 animate-spin" />
+            ) : (
+              <Database className="h-6 w-6 text-emerald-400" />
+            )}
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200">Koneksi PostgreSQL Cloud SQL</h2>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Terhubung
+              </span>
+              {syncStatus === 'success' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 animate-pulse">
+                  Sinkronisasi Berhasil
+                </span>
+              )}
+              {syncStatus === 'error' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  Gagal Sinkronisasi
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
+              Sistem menyinkronkan data secara otomatis. Klik tombol di kanan untuk memaksa pembaruan data instan antar perangkat/browser.
+            </p>
+            <div className="flex items-center gap-4 text-[10px] text-slate-400 pt-1 flex-wrap">
+              <span>Status: <strong className="text-slate-300">Auto-Polling (8 Detik)</strong></span>
+              <span>•</span>
+              <span>Terakhir Sinkron: <strong className="text-blue-400 font-mono">{lastSyncTime}</strong></span>
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0 relative z-10 w-full sm:w-auto">
+          <button
+            id="btn-trigger-sync"
+            disabled={isSyncing}
+            onClick={handleManualSync}
+            className={`px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-2 w-full sm:w-auto ${
+              isSyncing
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/25 active:scale-95'
+            }`}
+          >
+            <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Menyinkronkan...' : 'Sinkronkan Sekarang'}
           </button>
         </div>
       </div>
@@ -209,35 +405,76 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
         
         {/* Chart 1: Peminjaman per Bulan */}
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm lg:col-span-2">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
             <div>
-              <h2 className="text-base font-bold text-gray-900">Grafik Peminjaman Barang</h2>
-              <p className="text-xs text-gray-500">Volume transaksi peminjaman per bulan (Semester I 2026)</p>
+              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                Grafik Peminjaman Barang
+              </h2>
+              <p className="text-xs text-gray-500">Volume transaksi peminjaman per bulan (Tahun {selectedYear})</p>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-lg">
-              <TrendingUp className="h-3.5 w-3.5" /> +28% Bulan Ini
+            
+            <div className="flex items-center gap-2.5">
+              {/* Year Selector Dropdown */}
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(Number(e.target.value))}
+                className="px-2.5 py-1 text-xs font-semibold border border-gray-200 rounded-lg text-slate-700 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              >
+                {availableYears.map(yr => (
+                  <option key={yr} value={yr}>Tahun {yr}</option>
+                ))}
+              </select>
+
+              <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-lg">
+                <TrendingUp className="h-3.5 w-3.5" /> Berjalan Dinamis
+              </div>
             </div>
           </div>
-          {/* Responsive SVG Bar Chart */}
-          <div className="h-64 w-full flex items-end justify-between pt-4 px-2">
-            {monthlyData.map((d, index) => {
-              const maxVal = Math.max(...monthlyData.map(m => m.count));
-              const percentage = (d.count / maxVal) * 80; // Scale to 80% max height
-              return (
-                <div key={d.month} className="flex-1 flex flex-col items-center group relative">
-                  {/* Tooltip */}
-                  <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-950 text-white text-xs px-2 py-1 rounded shadow-md pointer-events-none z-10 font-mono">
-                    {d.count} Transaksi
-                  </div>
-                  {/* Bar */}
-                  <div 
-                    style={{ height: `${percentage}%` }}
-                    className="w-8 sm:w-12 bg-gradient-to-t from-blue-600 to-indigo-500 rounded-t-lg group-hover:from-blue-500 group-hover:to-indigo-400 transition-all duration-300 shadow-sm"
-                  ></div>
-                  <span className="text-xs font-semibold text-gray-600 mt-2">{d.month}</span>
-                </div>
-              );
-            })}
+
+          {/* Chart Workspace Area */}
+          <div className="h-64 w-full relative border border-slate-50 rounded-xl bg-slate-50/20 p-4 flex flex-col justify-between">
+            {/* Background Grid Lines */}
+            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-12 pt-6 px-4">
+              <div className="border-b border-dashed border-gray-100 w-full h-0"></div>
+              <div className="border-b border-dashed border-gray-100 w-full h-0"></div>
+              <div className="border-b border-dashed border-gray-100 w-full h-0"></div>
+              <div className="border-b border-dashed border-gray-200 w-full h-0"></div>
+            </div>
+
+            {monthlyData.some(m => m.count > 0) ? (
+              <div className="h-full w-full flex items-end justify-between pt-4 px-1 gap-1 z-10">
+                {monthlyData.map((d, index) => {
+                  const maxVal = Math.max(...monthlyData.map(m => m.count)) || 1;
+                  const percentage = (d.count / maxVal) * 80; // Scale to 80% max height
+                  return (
+                    <div key={d.month} className="flex-1 flex flex-col items-center group relative h-full justify-end">
+                      {/* Tooltip */}
+                      {d.count > 0 && (
+                        <div className="absolute -top-6 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-gray-950 text-white text-[10px] sm:text-xs px-2 py-1 rounded shadow-md pointer-events-none z-20 font-mono whitespace-nowrap">
+                          {d.count} Transaksi
+                        </div>
+                      )}
+                      {/* Bar */}
+                      <div 
+                        style={{ height: `${Math.max(percentage, d.count > 0 ? 6 : 0)}%` }}
+                        className={`w-3.5 sm:w-6 md:w-8 lg:w-10 bg-gradient-to-t from-blue-600 to-indigo-500 rounded-t-xs sm:rounded-t-md group-hover:from-blue-500 group-hover:to-indigo-400 transition-all duration-300 shadow-xs ${
+                          d.count > 0 ? 'opacity-100 scale-x-100' : 'opacity-15 bg-slate-300'
+                        }`}
+                      ></div>
+                      <span className="text-[10px] sm:text-xs font-semibold text-gray-500 mt-2 z-10 px-0.5 rounded-sm bg-white/80 backdrop-blur-xs">{d.month}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="h-full w-full flex flex-col items-center justify-center text-center p-4 z-10">
+                <History className="h-10 w-10 text-slate-300 mb-2 animate-pulse" />
+                <p className="text-xs font-bold text-slate-600">Belum Ada Transaksi Peminjaman</p>
+                <p className="text-[11px] text-slate-400 max-w-xs mt-0.5">
+                  Tidak ditemukan data peminjaman barang untuk tahun {selectedYear}. Silakan tambah transaksi baru di modul peminjaman.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -248,7 +485,7 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
 
           <div className="space-y-4">
             {topBorrowed.map((item, idx) => {
-              const maxVal = topBorrowed[0].count;
+              const maxVal = topBorrowed[0]?.count || 1;
               const widthPct = (item.count / maxVal) * 100;
               return (
                 <div key={item.name} className="space-y-1">
@@ -308,7 +545,7 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
                     </td>
                   </tr>
                 ) : (
-                  rusakItems.map(item => (
+                  paginatedRusakItems.map(item => (
                     <tr key={item.id_barang} className="hover:bg-gray-50/50 transition">
                       <td className="py-2.5 font-mono text-xs text-blue-600 font-semibold">{item.kode_barang}</td>
                       <td className="py-2.5 font-medium text-gray-900">{item.nama_barang}</td>
@@ -334,6 +571,53 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {rusakItems.length > 0 && (
+            <div className="flex items-center justify-between border-t border-gray-100 pt-4 mt-4">
+              <span className="text-xs text-gray-500 font-medium">
+                Menampilkan <strong className="text-gray-900">{startItem}</strong> - <strong className="text-gray-900">{endItem}</strong> dari <strong className="text-gray-900">{rusakItems.length}</strong> unit
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  id="btn-damaged-prev"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage === 1}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 transition-all"
+                  title="Sebelumnya"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-1">
+                  {visiblePages.map(page => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => setCurrentPage(page)}
+                      className={`min-w-[28px] h-7 rounded-lg text-xs font-bold transition-all ${
+                        safeCurrentPage === page
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  id="btn-damaged-next"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage === totalPages}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 transition-all"
+                  title="Berikutnya"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Activity Log (Audit Log) */}
@@ -372,6 +656,7 @@ export default function Dashboard({ currentUser, setActiveTab }: DashboardProps)
         </div>
 
       </div>
+
     </div>
   );
 }

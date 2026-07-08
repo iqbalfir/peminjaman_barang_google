@@ -64,6 +64,7 @@ export const peminjaman = pgTable('tabel_peminjaman', {
   created_by: integer('created_by').notNull(),
   created_at: text('created_at').notNull(),
   tanda_tangan: text('tanda_tangan'),
+  foto_peminjaman: text('foto_peminjaman'),
 });
 
 export const detailPeminjaman = pgTable('tabel_detail_peminjaman', {

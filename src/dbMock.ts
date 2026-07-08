@@ -446,6 +446,23 @@ export class OfficeInventoryDb {
   static getPerbaikan(): Perbaikan[] { return getDbData(STORAGE_KEYS.PERBAIKAN, INITIAL_PERBAIKAN); }
   static savePerbaikan(data: Perbaikan[]) { saveDbData(STORAGE_KEYS.PERBAIKAN, data); }
 
+  static clearAllData() {
+    localStorage.setItem(STORAGE_KEYS.KATEGORI, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.BARANG, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.PEMINJAM, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.PEMINJAMAN, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.DETAIL_PEMINJAMAN, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.PENGEMBALIAN, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.AUDIT_LOG, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.SERAH_TERIMA, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.DETAIL_SERAH_TERIMA, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.PERBAIKAN, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
+    if (onDataWriteCallback) {
+      onDataWriteCallback();
+    }
+  }
+
   static generateBastCode(): string {
     const now = new Date();
     const year = now.getFullYear();
@@ -544,7 +561,8 @@ export class OfficeInventoryDb {
     dokumenPendukung: string,
     items: { id_barang: number; jumlah_pinjam: number; kondisi_pinjam: 'Baik' | 'Rusak Ringan' | 'Rusak Berat'; keterangan: string }[],
     idUser: number,
-    tandaTangan?: string
+    tandaTangan?: string,
+    fotoPeminjaman?: string
   ): { success: boolean; message: string; nomor?: string } {
     
     const barangList = this.getBarang();
@@ -591,7 +609,8 @@ export class OfficeInventoryDb {
       status: 'Dipinjam',
       created_by: idUser,
       created_at: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      tanda_tangan: tandaTangan
+      tanda_tangan: tandaTangan,
+      foto_peminjaman: fotoPeminjaman
     };
 
     peminjamanList.unshift(newPeminjaman);

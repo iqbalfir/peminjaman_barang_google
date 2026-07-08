@@ -18,6 +18,7 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
   const [categories, setCategories] = useState<Kategori[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -25,7 +26,7 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, categoryFilter]);
+  }, [searchTerm, categoryFilter, statusFilter]);
 
   // QR Code Print states
   const [qrPrintItem, setQrPrintItem] = useState<Barang | null>(null);
@@ -442,7 +443,8 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
                           b.lokasi_penyimpanan.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesCategory = categoryFilter === 'all' || b.id_kategori === Number(categoryFilter);
-    return matchesSearch && matchesCategory;
+    const matchesStatus = statusFilter === 'all' || b.status_ketersediaan === statusFilter;
+    return matchesSearch && matchesCategory && matchesStatus;
   });
 
   // Pagination calculations
@@ -534,17 +536,32 @@ export default function BarangCRUD({ currentUser }: BarangCRUDProps) {
           </div>
 
           {/* Category Dropdown Filter */}
-          <div className="w-full md:w-64">
+          <div className="w-full md:w-48">
             <select 
               id="category-filter-select"
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+              className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white text-slate-700 font-medium"
             >
               <option value="all">Semua Kategori</option>
               {categories.map(c => (
                 <option key={c.id_kategori} value={c.id_kategori}>{c.nama_kategori}</option>
               ))}
+            </select>
+          </div>
+
+          {/* Status Dropdown Filter */}
+          <div className="w-full md:w-52">
+            <select 
+              id="status-filter-select"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-3.5 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white text-slate-700 font-semibold"
+            >
+              <option value="all">Semua Status</option>
+              <option value="Tersedia">Tersedia (Siap Pinjam)</option>
+              <option value="Dipinjam">Dipinjam (Sedang Keluar)</option>
+              <option value="Tidak Aktif">Tidak Aktif</option>
             </select>
           </div>
         </div>

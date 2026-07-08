@@ -15,30 +15,12 @@ import {
   Upload, 
   Check, 
   AlertTriangle,
-  FileSpreadsheet,
-  LogIn,
-  LogOut,
-  ExternalLink,
+  Server,
   Save,
   DownloadCloud,
-  CheckCircle,
-  Sparkles,
-  Server
+  CheckCircle
 } from 'lucide-react';
 import { OfficeInventoryDb } from '../dbMock';
-import { 
-  initAuth, 
-  googleSignIn, 
-  logoutGoogle 
-} from '../googleAuth';
-import { 
-  findSpreadsheet, 
-  createSpreadsheet, 
-  exportToGoogleSheets, 
-  importFromGoogleSheets,
-  initGlobalSync
-} from '../googleSheetsSync';
-import { User } from 'firebase/auth';
 
 interface DbBackupViewProps {
   currentUser: { id_user: number; nama_user: string; role: string } | null;
@@ -57,18 +39,61 @@ export default function DbBackupView({ currentUser }: DbBackupViewProps) {
 
   const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
 
-  // Google Sheets integration states
-  const [googleUser, setGoogleUser] = useState<User | null>(null);
-  const [googleToken, setGoogleToken] = useState<string | null>(null);
-  const [spreadsheet, setSpreadsheet] = useState<{ id: string; name: string } | null>(null);
-  const [isSearchingSpreadsheet, setIsSearchingSpreadsheet] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState('');
-  const [autoSync, setAutoSync] = useState(() => {
-    return localStorage.getItem('inv_auto_sync') !== 'false'; // default to true
-  });
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
+  // Reset database states
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetDatabase = async () => {
+    setIsResetting(true);
+    try {
+      OfficeInventoryDb.clearAllData();
+
+      const cleanPayload = {
+        kategori: [],
+        barang: [],
+        peminjam: [],
+        users: OfficeInventoryDb.getUsers(),
+        peminjaman: [],
+        detail_peminjaman: [],
+        pengembalian: [],
+        audit_log: [
+          {
+            id_log: 1,
+            tanggal: new Date().toISOString().replace('T', ' ').substring(0, 19),
+            id_user: currentUser?.id_user || 1,
+            aktivitas: 'Inisialisasi sistem: Menghapus data demo dan memulai basis data baru.',
+            ip_address: '127.0.0.1'
+          }
+        ],
+        serah_terima: [],
+        detail_serah_terima: [],
+        perbaikan: [],
+      };
+
+      localStorage.setItem('inv_audit_log', JSON.stringify(cleanPayload.audit_log));
+
+      const seedRes = await fetch('/api/cloudsql/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cleanPayload),
+      });
+
+      if (!seedRes.ok) {
+        throw new Error('Gagal mereset data di Cloud SQL PostgreSQL: ' + await seedRes.text());
+      }
+
+      setIsResetModalOpen(false);
+      alert('Basis data berhasil direset kembali ke keadaan bersih!');
+      window.location.reload();
+    } catch (err: any) {
+      console.error(err);
+      alert('Gagal menghapus data: ' + err.message);
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+
 
   // Cloud SQL Integration States
   const [cloudSqlStatus, setCloudSqlStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
@@ -186,171 +211,7 @@ export default function DbBackupView({ currentUser }: DbBackupViewProps) {
     checkCloudSqlStatus();
   }, []);
 
-  // Initialize auth
-  useEffect(() => {
-    const unsubscribe = initAuth(
-      (user, token) => {
-        setGoogleUser(user);
-        setGoogleToken(token);
-        
-        const savedSheet = localStorage.getItem('inv_g_spreadsheet');
-        if (savedSheet) {
-          try {
-            setSpreadsheet(JSON.parse(savedSheet));
-          } catch (e) {}
-        }
-      },
-      () => {
-        setGoogleUser(null);
-        setGoogleToken(null);
-      }
-    );
-    return () => unsubscribe();
-  }, []);
 
-  // Update global sync parameters whenever state changes
-  useEffect(() => {
-    initGlobalSync(googleToken, spreadsheet?.id || null, autoSync);
-  }, [googleToken, spreadsheet, autoSync]);
-
-  const handleGoogleLogin = async () => {
-    setSyncError(null);
-    setSyncSuccess(null);
-    try {
-      const res = await googleSignIn();
-      if (res) {
-        setGoogleUser(res.user);
-        setGoogleToken(res.accessToken);
-        setSyncSuccess(`Berhasil masuk sebagai ${res.user.email}!`);
-        // Check for existing spreadsheet automatically
-        await checkOrFindSpreadsheet(res.accessToken);
-      }
-    } catch (err: any) {
-      const errMsg = err.message || String(err);
-      if (errMsg.includes('popup-closed-by-user') || errMsg.includes('popup')) {
-        setSyncError(
-          'Jendela pratinjau login Google ditutup sebelum selesai. Ini terjadi karena browser memblokir komunikasi popup di dalam panel preview (iframe). Silakan buka aplikasi di tab baru untuk melakukan login dengan sukses.'
-        );
-      } else {
-        setSyncError('Gagal masuk Google OAuth: ' + errMsg);
-      }
-    }
-  };
-
-  const handleGoogleLogout = async () => {
-    try {
-      await logoutGoogle();
-      setGoogleUser(null);
-      setGoogleToken(null);
-      setSpreadsheet(null);
-      localStorage.removeItem('inv_g_spreadsheet');
-      setSyncSuccess('Berhasil keluar dari akun Google.');
-    } catch (err: any) {
-      setSyncError('Gagal keluar dari akun Google: ' + (err.message || String(err)));
-    }
-  };
-
-  const checkOrFindSpreadsheet = async (token: string) => {
-    setIsSearchingSpreadsheet(true);
-    setSyncError(null);
-    try {
-      const found = await findSpreadsheet(token);
-      if (found) {
-        setSpreadsheet(found);
-        localStorage.setItem('inv_g_spreadsheet', JSON.stringify(found));
-        setSyncSuccess(`Ditemukan database spreadsheet yang cocok: "${found.name}"`);
-      } else {
-        setSpreadsheet(null);
-        localStorage.removeItem('inv_g_spreadsheet');
-      }
-    } catch (err: any) {
-      setSyncError('Kesalahan mendeteksi database Google Sheets: ' + (err.message || String(err)));
-    } finally {
-      setIsSearchingSpreadsheet(false);
-    }
-  };
-
-  const handleCreateSpreadsheet = async () => {
-    if (!googleToken) return;
-    setIsSearchingSpreadsheet(true);
-    setSyncError(null);
-    setSyncSuccess(null);
-    try {
-      const newId = await createSpreadsheet(googleToken);
-      const sheetInfo = { id: newId, name: 'SINVENT OFFICE Database' };
-      setSpreadsheet(sheetInfo);
-      localStorage.setItem('inv_g_spreadsheet', JSON.stringify(sheetInfo));
-      setSyncSuccess('Spreadsheet "SINVENT OFFICE Database" baru berhasil dibuat!');
-      
-      // Initial export
-      setSyncProgress('Memulai ekspor data awal ke spreadsheet baru...');
-      await exportToGoogleSheets(googleToken, newId, (msg) => setSyncProgress(msg));
-      setSyncSuccess('Database spreadsheet baru berhasil dibuat dan data telah diekspor!');
-    } catch (err: any) {
-      setSyncError('Gagal membuat database spreadsheet: ' + (err.message || String(err)));
-    } finally {
-      setIsSearchingSpreadsheet(false);
-      setSyncProgress('');
-    }
-  };
-
-  const handleExport = async () => {
-    if (!googleToken || !spreadsheet?.id) {
-      setSyncError('Autentikasi Google atau spreadsheet tidak terhubung.');
-      return;
-    }
-    setIsSyncing(true);
-    setSyncError(null);
-    setSyncSuccess(null);
-    try {
-      await exportToGoogleSheets(googleToken, spreadsheet.id, (msg) => setSyncProgress(msg));
-      setSyncSuccess('Seluruh data berhasil diekspor ke Google Sheets!');
-      OfficeInventoryDb.logActivity(currentUser?.id_user || 1, 'Mengekspor seluruh database lokal ke Google Sheets');
-    } catch (err: any) {
-      setSyncError('Ekspor gagal: ' + (err.message || String(err)));
-    } finally {
-      setIsSyncing(false);
-      setSyncProgress('');
-    }
-  };
-
-  const handleImport = async () => {
-    if (!googleToken || !spreadsheet?.id) {
-      setSyncError('Autentikasi Google atau spreadsheet tidak terhubung.');
-      return;
-    }
-    const confirmImport = window.confirm(
-      'PERINGATAN KRITIS: Tindakan ini akan menghapus seluruh data lokal Anda di browser ini dan menggantikannya dengan data dari Google Sheets.\n\nApakah Anda yakin ingin melanjutkan?'
-    );
-    if (!confirmImport) return;
-
-    setIsSyncing(true);
-    setSyncError(null);
-    setSyncSuccess(null);
-    try {
-      await importFromGoogleSheets(googleToken, spreadsheet.id, (msg) => setSyncProgress(msg));
-      setSyncSuccess('Seluruh data berhasil diimpor dari Google Sheets!');
-      OfficeInventoryDb.logActivity(currentUser?.id_user || 1, 'Mengimpor seluruh database dari Google Sheets');
-      
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
-    } catch (err: any) {
-      setSyncError('Impor gagal: ' + (err.message || String(err)));
-    } finally {
-      setIsSyncing(false);
-      setSyncProgress('');
-    }
-  };
-
-  const handleToggleAutoSync = () => {
-    const newValue = !autoSync;
-    setAutoSync(newValue);
-    localStorage.setItem('inv_auto_sync', String(newValue));
-    if (newValue && googleToken && spreadsheet?.id) {
-      exportToGoogleSheets(googleToken, spreadsheet.id).catch(console.error);
-    }
-  };
 
   const handleGenerateBackup = () => {
     if (currentUser?.role !== 'Admin') {
@@ -890,273 +751,9 @@ export default function DbBackupView({ currentUser }: DbBackupViewProps) {
         </div>
       </div>
 
-      {/* Google Sheets Integration Card - Disabled & Replaced */}
-      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200">
-          <div>
-            <h3 className="text-base font-bold text-slate-500 flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-slate-400" /> Integrasi Google Sheets (Dinonaktifkan)
-            </h3>
-            <p className="text-xs text-slate-400">Sinkronisasi eksternal ke Google Spreadsheet telah dinonaktifkan sesuai kebutuhan sistem baru.</p>
-          </div>
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-200 text-slate-500 border border-slate-300">
-            ● Disabled
-          </span>
-        </div>
 
-        <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl space-y-3 shadow-xs">
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-blue-600 rounded-xl text-white shrink-0">
-              <Database className="h-5 w-5" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-sm font-bold text-slate-900">Sinkronisasi Otomatis PostgreSQL Cloud SQL Aktif</h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Aplikasi Anda sekarang dikonfigurasi untuk secara otomatis menyimpan dan menyinkronkan seluruh perubahan data (kategori, barang, peminjam, transaksi, perbaikan, jejak audit log, dll.) langsung ke <strong>Integrasi Cloud SQL PostgreSQL</strong> secara real-time.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <span className="px-2.5 py-1 bg-white border border-blue-200 text-blue-800 text-[10px] font-bold uppercase tracking-wider rounded-lg flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              Real-time Auto-save Aktif
-            </span>
-            <span className="px-2.5 py-1 bg-white border border-blue-200 text-blue-800 text-[10px] font-bold uppercase tracking-wider rounded-lg flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
-              Database PostgreSQL Berkinerja Tinggi
-            </span>
-          </div>
-        </div>
 
-        <div className="text-[10px] text-slate-400 leading-normal pt-2">
-          <strong>Catatan Sistem:</strong> Anda tidak perlu lagi melakukan ekspor atau impor manual ke Google Sheets. Seluruh riwayat transaksi dan data master tersimpan dengan aman, konsisten, dan tahan lama di basis data relasional Cloud SQL.
-        </div>
-      </div>
-
-      {/* Hidden legacy Google Sheets controls to satisfy bindings and imports */}
-      <div className="hidden">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-          
-          {/* Left: Google Account Connection & Status */}
-          <div className="space-y-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-100 space-y-3 shadow-xs">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status Akun Google</span>
-              
-              {!googleUser ? (
-                <div className="space-y-3">
-                  <p className="text-xs text-slate-600 leading-normal">
-                    Anda belum menghubungkan akun Google Anda. Hubungkan sekarang untuk membuat spreadsheet baru atau membaca data dari file cloud Anda.
-                  </p>
-                  
-                  {isInIframe && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 space-y-2">
-                      <div className="flex items-start gap-1.5 font-semibold">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                        <span>Peringatan Pembatasan Iframe Preview</span>
-                      </div>
-                      <p className="leading-relaxed">
-                        Browser memblokir Google Sign-In popup jika dijalankan di dalam panel pratinjau (iframe) AI Studio. Silakan buka aplikasi di tab baru untuk melakukan login dengan aman dan lancar.
-                      </p>
-                      <a
-                        href={window.location.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] shadow-xs transition duration-150"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        Buka Aplikasi di Tab Baru
-                      </a>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={handleGoogleLogin}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-98"
-                  >
-                    <LogIn className="h-4 w-4" /> Masuk dengan Google
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3.5">
-                  <div className="flex items-center gap-3">
-                    {googleUser.photoURL ? (
-                      <img src={googleUser.photoURL} alt={googleUser.displayName || 'Google Profile'} className="h-10 w-10 rounded-full border border-emerald-100" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="h-10 w-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                        {googleUser.email?.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-slate-800 truncate">{googleUser.displayName || 'Akun Google'}</div>
-                      <div className="text-[10px] text-slate-400 truncate font-mono">{googleUser.email}</div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 pt-2 border-t border-slate-50">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Database Terhubung:</span>
-                    {spreadsheet ? (
-                      <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg flex justify-between items-center gap-2">
-                        <div className="min-w-0">
-                          <div className="text-xs font-bold text-emerald-800 truncate flex items-center gap-1">
-                            <Sparkles className="h-3 w-3 text-amber-500 shrink-0" /> {spreadsheet.name}
-                          </div>
-                          <div className="text-[9px] text-slate-400 font-mono truncate">ID: {spreadsheet.id.substring(0, 16)}...</div>
-                        </div>
-                        <a 
-                          href={`https://docs.google.com/spreadsheets/d/${spreadsheet.id}`} 
-                          target="_blank" 
-                          referrerPolicy="no-referrer"
-                          className="p-1.5 bg-white text-slate-600 hover:text-emerald-600 border border-slate-200 rounded-lg hover:shadow-xs transition flex items-center justify-center"
-                          title="Buka Spreadsheet di Tab Baru"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <p className="text-[11px] text-amber-600 font-medium">Database spreadsheet belum dibuat di Google Drive Anda.</p>
-                        <button
-                          onClick={handleCreateSpreadsheet}
-                          disabled={isSearchingSpreadsheet}
-                          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition"
-                        >
-                          {isSearchingSpreadsheet ? (
-                            <>
-                              <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Membuat...
-                            </>
-                          ) : (
-                            <>
-                              <FileSpreadsheet className="h-3.5 w-3.5" /> Buat Spreadsheet Otomatis
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <button
-                    onClick={handleGoogleLogout}
-                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl text-[11px] font-bold transition-all border border-slate-100"
-                  >
-                    <LogOut className="h-3.5 w-3.5" /> Putuskan Koneksi Akun
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Auto Sync Settings & Information */}
-            {googleUser && spreadsheet && (
-              <div className="bg-white p-4 rounded-xl border border-slate-100 space-y-2.5 shadow-xs">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <span className="text-xs font-bold text-slate-800">Sinkronisasi Otomatis</span>
-                    <p className="text-[10px] text-slate-400">Ekspor setiap perubahan data secara real-time</p>
-                  </div>
-                  <button 
-                    onClick={handleToggleAutoSync}
-                    className="focus:outline-none"
-                  >
-                    {autoSync ? (
-                      <div className="w-10 h-6 flex items-center bg-emerald-500 rounded-full p-0.5 cursor-pointer transition">
-                        <div className="bg-white w-5 h-5 rounded-full shadow-md transform translate-x-4 transition"></div>
-                      </div>
-                    ) : (
-                      <div className="w-10 h-6 flex items-center bg-slate-300 rounded-full p-0.5 cursor-pointer transition">
-                        <div className="bg-white w-5 h-5 rounded-full shadow-md transform translate-x-0 transition"></div>
-                      </div>
-                    )}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Right: Actions, Sync Status & Progress */}
-          <div className="bg-white p-5 rounded-xl border border-slate-100 flex flex-col justify-between shadow-xs">
-            <div className="space-y-4">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Aksi Basis Data Cloud</span>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <button
-                  onClick={handleExport}
-                  disabled={!googleUser || !spreadsheet || isSyncing}
-                  className={`px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition flex flex-col items-center justify-center gap-1.5 text-center ${
-                    !googleUser || !spreadsheet || isSyncing ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
-                  <Save className="h-5 w-5" />
-                  <span>Ekspor Ke Sheets</span>
-                  <span className="text-[9px] font-normal opacity-80">Kirim data lokal ke cloud</span>
-                </button>
-
-                <button
-                  onClick={handleImport}
-                  disabled={!googleUser || !spreadsheet || isSyncing}
-                  className={`px-4 py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md transition flex flex-col items-center justify-center gap-1.5 text-center ${
-                    !googleUser || !spreadsheet || isSyncing ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
-                  <DownloadCloud className="h-5 w-5" />
-                  <span>Impor Dari Sheets</span>
-                  <span className="text-[9px] font-normal opacity-80">Timpa data lokal dari cloud</span>
-                </button>
-              </div>
-
-              {/* Progress Panel */}
-              {isSyncing && (
-                <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl space-y-1.5">
-                  <div className="flex items-center gap-2 text-blue-800 text-xs font-bold">
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-600" />
-                    <span>Sinkronisasi Sedang Berlangsung...</span>
-                  </div>
-                  <p className="text-[10px] text-blue-600 font-medium italic">{syncProgress}</p>
-                </div>
-              )}
-
-              {/* Success Alert */}
-              {syncSuccess && (
-                <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl flex items-start gap-2">
-                  <CheckCircle className="h-4.5 w-4.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <div className="text-xs font-bold text-emerald-800">
-                    {syncSuccess}
-                  </div>
-                </div>
-              )}
-
-              {/* Error Alert */}
-              {syncError && (
-                <div className="bg-rose-50 border border-rose-100 p-3 rounded-xl flex flex-col gap-2">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4.5 w-4.5 text-rose-600 shrink-0 mt-0.5" />
-                    <div className="text-xs font-medium text-rose-700">
-                      <strong className="block font-bold mb-0.5">Kesalahan Sinkronisasi:</strong>
-                      {syncError}
-                    </div>
-                  </div>
-                  {(syncError.includes('popup') || syncError.includes('iframe') || isInIframe) && (
-                    <a
-                      href={window.location.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 self-start px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[10px] shadow-xs transition duration-150 mt-1"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Buka di Tab Baru & Coba Lagi
-                    </a>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="text-[9px] text-slate-400 leading-normal pt-4 border-t border-slate-50 mt-4">
-              <strong>Catatan Google Drive:</strong> Seluruh modifikasi tabel data akan disimpan ke spreadsheet bersangkutan dengan aman. Pastikan Anda tidak mengubah susunan atau nama tab sheet di Google Sheets secara manual untuk mencegah kesalahan pembacaan data.
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Left Card: Information & Security */}
         <div className="border border-slate-150 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
@@ -1305,7 +902,121 @@ export default function DbBackupView({ currentUser }: DbBackupViewProps) {
           </div>
         </div>
 
+        {/* Card 3: Inisialisasi & Hapus Semua Data */}
+        <div className="border border-rose-100 bg-rose-50/10 rounded-2xl p-6 flex flex-col justify-between space-y-4">
+          <div>
+            <h3 className="text-sm font-bold text-rose-900 flex items-center gap-1.5 uppercase tracking-wider mb-2">
+              <AlertTriangle className="h-4.5 w-4.5 text-rose-600" /> Inisialisasi Database
+            </h3>
+            <p className="text-xs text-rose-700 leading-relaxed">
+              Ingin membersihkan sistem dari seluruh data demo bawaan untuk digunakan secara nyata? Fitur ini akan menghapus semua barang, transaksi, peminjam, kategori, dan log sistem secara instan.
+            </p>
+
+            <div className="space-y-2 mt-4 text-xs font-semibold text-rose-800">
+              <div className="flex items-center gap-2">
+                • Menghapus seluruh data master barang & kategori
+              </div>
+              <div className="flex items-center gap-2">
+                • Mengosongkan data transaksi pinjam-kembali
+              </div>
+              <div className="flex items-center gap-2">
+                • Mempertahankan akun login utama ('admin', 'petugas')
+              </div>
+            </div>
+          </div>
+
+          {currentUser?.role === 'Admin' ? (
+            <div className="space-y-3">
+              <button
+                type="button"
+                id="btn-reset-db"
+                disabled={isBackingUp || isRestoring || isResetting}
+                onClick={() => setIsResetModalOpen(true)}
+                className={`w-full px-5 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-2 border shadow-sm ${
+                  isBackingUp || isRestoring || isResetting
+                    ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white border-rose-600 shadow-rose-600/10 hover:shadow-lg hover:shadow-rose-600/20 active:scale-95'
+                }`}
+              >
+                <AlertTriangle className="h-4 w-4" />
+                Ya, Kosongkan Database
+              </button>
+            </div>
+          ) : (
+            <div className="bg-rose-50 border border-rose-100 p-3 rounded-lg text-xs text-rose-700 font-semibold flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4" /> Akses Ditolak: Hanya Akun Administrator yang Diizinkan Menginisialisasi Database.
+            </div>
+          )}
+
+          <div className="bg-rose-50 border border-rose-100/30 p-2.5 rounded-xl flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+            <span className="text-[9px] text-rose-600 leading-normal font-medium">
+              <strong>TINDAKAN SANGAT SENSITIF:</strong> Penghapusan bersifat permanen di lokal & Cloud SQL. Pastikan Anda mengunduh berkas Backup (.SQL) terlebih dahulu sebagai cadangan aman.
+            </span>
+          </div>
+        </div>
+
       </div>
+
+      {/* CONFIRM RESET DATABASE MODAL */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 flex flex-col gap-6 relative">
+            <div className="flex items-center gap-4 text-rose-600">
+              <div className="p-3 bg-rose-50 rounded-2xl shrink-0">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-950">Hapus Seluruh Data Demo?</h3>
+                <p className="text-xs text-rose-500 font-medium">Tindakan ini tidak dapat dibatalkan!</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Anda akan menghapus seluruh data demo bawaan sistem yang mencakup:
+              </p>
+              <ul className="grid grid-cols-2 gap-2 text-xs text-gray-500 bg-gray-50 p-4 rounded-2xl border border-gray-100 font-semibold uppercase tracking-wider">
+                <li>• Master Barang</li>
+                <li>• Master Kategori</li>
+                <li>• Master Peminjam</li>
+                <li>• Transaksi Pinjam</li>
+                <li>• Catatan Kembali</li>
+                <li>• Historis Perbaikan</li>
+              </ul>
+              <p className="text-xs text-gray-400 italic">
+                *Akun login default ('admin', 'petugas') akan tetap dipertahankan agar Anda tidak kehilangan akses masuk sistem.
+              </p>
+            </div>
+
+            <div className="flex gap-3 mt-2">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setIsResetModalOpen(false)}
+                className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs uppercase tracking-wider transition-colors disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={handleResetDatabase}
+                className="flex-1 px-4 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-rose-600/20 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isResetting ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Menghapus...
+                  </>
+                ) : (
+                  'Ya, Hapus Semua'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
