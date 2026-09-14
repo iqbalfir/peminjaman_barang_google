@@ -237,9 +237,62 @@ const INITIAL_PEMINJAM: Peminjam[] = [
 ];
 
 const INITIAL_USERS: User[] = [
-  { id_user: 1, nama_user: 'Administrator Utama', username: 'admin', password: 'adminpassword', role: 'Admin', last_login: '2026-06-28 10:15:00', status: 'Aktif' },
-  { id_user: 2, nama_user: 'Rahmat Hidayat (Petugas)', username: 'petugas', password: 'petugaspassword', role: 'Petugas', last_login: '2026-06-28 08:30:22', status: 'Aktif' },
-  { id_user: 3, nama_user: 'Budi Hartono (Peminjam)', username: 'budi', password: 'peminjampassword', role: 'Peminjam', last_login: '2026-06-27 15:45:00', status: 'Aktif' }
+  {
+    id_user: 1,
+    nama_user: 'Heri Santoso, S.Kom',
+    username: 'admin_heri',
+    password: 'adminpassword123',
+    role: 'Admin',
+    last_login: '2026-06-28 10:15:00',
+    status: 'Aktif',
+    email: 'heri.santoso@kemdikbud.go.id',
+    nomor_telepon: '081299887766',
+    instansi: 'Balai Pelestarian Kebudayaan Banten',
+    nip_nik: '197612052003021002',
+    created_at: '2026-01-10 08:00:00',
+  },
+  {
+    id_user: 2,
+    nama_user: 'Aris Munandar, S.AP',
+    username: 'petugas_aris',
+    password: 'petugaspassword123',
+    role: 'Petugas',
+    last_login: '2026-06-28 08:30:22',
+    status: 'Aktif',
+    email: 'aris.munandar@kemdikbud.go.id',
+    nomor_telepon: '085611223344',
+    instansi: 'Balai Pelestarian Kebudayaan Banten',
+    nip_nik: '198405102009121001',
+    created_at: '2026-01-15 09:30:00',
+  },
+  {
+    id_user: 3,
+    nama_user: 'Budi Hartono, S.Kom',
+    username: 'peminjam_budi',
+    password: 'peminjampassword123',
+    role: 'Peminjam',
+    last_login: '2026-06-27 15:45:00',
+    status: 'Aktif',
+    email: 'budi.hartono@kantor.go.id',
+    nomor_telepon: '081234567890',
+    instansi: 'Direktorat Sistem Informasi',
+    nip_nik: '198503122010121003',
+    created_at: '2026-02-01 10:00:00',
+  },
+  {
+    id_user: 4,
+    nama_user: 'Siti Rahmawati, M.M',
+    username: 'peminjam_siti',
+    password: 'sitipassword123',
+    role: 'Peminjam',
+    last_login: '2026-06-25 11:20:00',
+    status: 'Aktif',
+    email: 'siti.rahma@kantor.go.id',
+    nomor_telepon: '085712345678',
+    instansi: 'Divisi Sumber Daya Manusia (HRD)',
+    nip_nik: '199008242015032001',
+    created_at: '2026-02-15 13:45:00',
+  }
 ];
 
 const INITIAL_PEMINJAMAN: Peminjaman[] = [

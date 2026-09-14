@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, 
   Tag, 
@@ -20,6 +20,7 @@ import {
   X, 
   LogOut, 
   User as UserIcon, 
+  UserCog,
   Clock, 
   Calendar,
   Layers,
@@ -47,6 +48,7 @@ import PhpCodeExplorer from './components/PhpCodeExplorer';
 import AccountManagement from './components/AccountManagement';
 import SerahTerimaBarang from './components/SerahTerimaBarang';
 import PerbaikanCRUD from './components/PerbaikanCRUD';
+import LoginScreen from './components/LoginScreen';
 
 import { registerOnDataWrite } from './dbMock';
 
@@ -58,7 +60,12 @@ const MOCK_ROLES = [
 ];
 
 export default function App() {
-  const isLoggedIn = true;
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    const saved = localStorage.getItem('inv_is_logged_in');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
   const [activeUser, setActiveUser] = useState(() => {
     const savedUser = localStorage.getItem('inv_active_user');
@@ -82,7 +89,12 @@ export default function App() {
   const [lastSyncTime, setLastSyncTime] = useState<string>('Sesaat yang lalu');
   const [isSyncingManual, setIsSyncingManual] = useState<boolean>(false);
 
-  // Login Modal & Form States
+  // Available users for simulation & authentication
+  const availableUsers = useMemo(() => {
+    const dbUsers = OfficeInventoryDb.getUsers();
+    return dbUsers && dbUsers.length > 0 ? dbUsers : MOCK_ROLES;
+  }, [updateKey]);
+
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [pendingTab, setPendingTab] = useState<'dashboard' | 'barang' | 'kategori' | 'peminjam' | 'transaksi' | 'pengembalian' | 'riwayat' | 'laporan' | 'audit' | 'backup' | 'php' | 'account' | 'serah_terima' | 'perbaikan'>('dashboard');
   const [loginUsername, setLoginUsername] = useState('');
@@ -339,7 +351,8 @@ export default function App() {
   }, []);
 
   const handleRoleChange = (userId: number) => {
-    const found = MOCK_ROLES.find(r => r.id_user === userId);
+    const allUsers = OfficeInventoryDb.getUsers();
+    const found = allUsers.find(r => r.id_user === userId) || MOCK_ROLES.find(r => r.id_user === userId);
     if (found) {
       setActiveUser(found);
       localStorage.setItem('inv_active_user', JSON.stringify(found));
@@ -363,7 +376,26 @@ export default function App() {
   const handleQuickLogin = (role: 'Admin' | 'Petugas' | 'Peminjam') => {};
 
   const handleLogout = () => {
-    // No-op as login is removed
+    setIsLogoutModalOpen(true);
+  };
+
+  const handleLogoutConfirm = () => {
+    OfficeInventoryDb.logActivity(
+      activeUser.id_user,
+      `Pengguna "${activeUser.nama_user}" (${activeUser.role}) keluar (logout) dari sesi sistem`
+    );
+    setIsLoggedIn(false);
+    localStorage.setItem('inv_is_logged_in', 'false');
+    setIsLogoutModalOpen(false);
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleLoginSuccess = (user: any) => {
+    setActiveUser(user);
+    localStorage.setItem('inv_active_user', JSON.stringify(user));
+    setIsLoggedIn(true);
+    localStorage.setItem('inv_is_logged_in', 'true');
+    setUpdateKey(prev => prev + 1);
   };
 
   if (isSyncingInitial) {
@@ -396,6 +428,10 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  if (!isLoggedIn) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
   }
 
   return (
@@ -626,19 +662,6 @@ export default function App() {
               </button>
             )}
 
-            {/* Manajemen Akun */}
-            <button
-              id="menu-account"
-              onClick={() => handleTabClick('account')}
-              className={`w-full text-left px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition ${
-                activeTab === 'account' ? 'bg-slate-800 text-white font-bold border-l-4 border-blue-500' : 'hover:bg-slate-800/50 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <UserIcon className="h-4 w-4 shrink-0" /> Manajemen Akun
-              </span>
-            </button>
-
             {/* PHP Source Code templates explorer */}
             <button
               id="menu-php"
@@ -653,8 +676,67 @@ export default function App() {
             </button>
           </div>
 
+          {/* User Management Section */}
+          <div className="space-y-1">
+            <span className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-widest block">PENGATURAN PENGGUNA</span>
+            
+            {/* Manajemen Akun Pengguna */}
+            <button
+              id="menu-account"
+              onClick={() => handleTabClick('account')}
+              className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition ${
+                activeTab === 'account' ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20' : 'hover:bg-slate-800/50 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="flex items-center gap-2.5">
+                <UserCog className="h-4 w-4 shrink-0 text-blue-400" /> Manajemen Akun Pengguna
+              </span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${activeTab === 'account' ? 'bg-blue-700 text-white' : 'bg-blue-500/20 text-blue-300'}`}>
+                RBAC
+              </span>
+            </button>
+
+            {/* Menu Keluar / Logout */}
+            <button
+              id="menu-logout"
+              onClick={handleLogout}
+              className="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between text-rose-400 hover:text-white hover:bg-rose-600/20 border border-rose-500/20 transition group"
+            >
+              <span className="flex items-center gap-2.5">
+                <LogOut className="h-4 w-4 shrink-0 text-rose-400 group-hover:text-rose-300" /> Keluar dari Sistem
+              </span>
+              <span className="text-[10px] bg-rose-500/15 text-rose-300 px-1.5 py-0.5 rounded font-mono font-bold">
+                Logout
+              </span>
+            </button>
+          </div>
+
         </nav>
 
+        {/* Sidebar Sticky User Session Footer */}
+        <div className="p-3.5 border-t border-slate-800 bg-slate-950/40 shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="h-8 w-8 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center font-bold text-xs text-blue-400 shrink-0">
+                {activeUser.nama_user.charAt(0)}
+              </div>
+              <div className="truncate">
+                <div className="text-xs font-bold text-white truncate leading-tight">{activeUser.nama_user}</div>
+                <div className="text-[10px] text-slate-400 truncate flex items-center gap-1 font-medium">
+                  <span className="text-emerald-400">●</span> {activeUser.role}
+                </div>
+              </div>
+            </div>
+            <button
+              id="sidebar-footer-logout"
+              onClick={handleLogout}
+              className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition shrink-0"
+              title="Keluar dari Sistem (Logout)"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
 
       </aside>
 
@@ -695,7 +777,7 @@ export default function App() {
                 onChange={(e) => handleRoleChange(Number(e.target.value))}
                 className="w-full p-1 bg-slate-900 border border-slate-700 rounded text-white text-xs font-bold"
               >
-                {MOCK_ROLES.map(r => (
+                {availableUsers.map(r => (
                   <option key={r.id_user} value={r.id_user}>{r.nama_user} ({r.role})</option>
                 ))}
               </select>
@@ -796,11 +878,14 @@ export default function App() {
 
               <button 
                 onClick={() => { handleTabClick('account'); setIsMobileMenuOpen(false); }} 
-                className="w-full text-left py-1.5 flex items-center justify-between gap-2"
+                className={`w-full text-left py-2 px-2.5 rounded-lg flex items-center justify-between gap-2 transition ${
+                  activeTab === 'account' ? 'bg-blue-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'
+                }`}
               >
-                <span className="flex items-center gap-2">
-                  <UserIcon className="h-4 w-4 text-blue-500" /> Manajemen Akun
+                <span className="flex items-center gap-2.5">
+                  <UserCog className="h-4 w-4 text-blue-400" /> Manajemen Akun Pengguna
                 </span>
+                <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-bold">RBAC</span>
               </button>
 
               <button 
@@ -811,6 +896,20 @@ export default function App() {
                   <Server className="h-4 w-4 text-blue-500" /> Template Backend PHP
                 </span>
               </button>
+
+              {/* Menu Logout Mobile Drawer */}
+              <div className="pt-3 border-t border-slate-800">
+                <button 
+                  id="mob-logout-btn"
+                  onClick={() => { setIsMobileMenuOpen(false); handleLogout(); }} 
+                  className="w-full text-left py-2.5 px-3 rounded-xl flex items-center justify-between text-rose-400 hover:text-white hover:bg-rose-600/20 border border-rose-500/20 transition text-xs font-bold"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <LogOut className="h-4 w-4 text-rose-400" /> Keluar dari Sistem
+                  </span>
+                  <span className="text-[10px] bg-rose-500/15 text-rose-300 px-1.5 py-0.5 rounded font-mono font-bold">Logout</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -834,24 +933,61 @@ export default function App() {
             </div>
           </div>
 
-          {/* Simulation controller widget (Role Switcher) */}
+          {/* Quick Actions & Simulation controller widget (Role Switcher & Logout) */}
           <div className="flex items-center gap-3">
-            <div className="text-right text-xs">
-              <span className="text-gray-400 font-bold uppercase tracking-wider block text-[9px]">Ganti Hak Akses Akun</span>
-              <span className="text-gray-600 font-medium">Beralih peran simulasi sistem</span>
-            </div>
-            <select 
-              id="desktop-role-swap"
-              value={activeUser.id_user}
-              onChange={(e) => handleRoleChange(Number(e.target.value))}
-              className="px-3 py-1.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-bold text-gray-700"
+            {/* Manajemen Akun Pengguna Quick Access Button */}
+            <button
+              id="header-btn-account"
+              onClick={() => handleTabClick('account')}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-2 ${
+                activeTab === 'account' 
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/20' 
+                  : 'bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border-gray-200'
+              }`}
+              title="Buka Manajemen Akun Pengguna & Hak Akses (RBAC)"
             >
-              {MOCK_ROLES.map(r => (
-                <option key={r.id_user} value={r.id_user}>
-                  Simulasi: {r.nama_user} ({r.role})
-                </option>
-              ))}
-            </select>
+              <UserCog className={`h-4 w-4 ${activeTab === 'account' ? 'text-white' : 'text-blue-600'}`} />
+              <span>Manajemen Akun Pengguna</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                activeTab === 'account' ? 'bg-blue-700 text-white' : 'bg-blue-100 text-blue-700'
+              }`}>
+                RBAC
+              </span>
+            </button>
+
+            <div className="h-6 w-px bg-gray-200"></div>
+
+            <div className="flex items-center gap-2">
+              <div className="text-right text-xs">
+                <span className="text-gray-400 font-bold uppercase tracking-wider block text-[9px]">Ganti Hak Akses Akun</span>
+                <span className="text-gray-600 font-medium">Beralih peran simulasi</span>
+              </div>
+              <select 
+                id="desktop-role-swap"
+                value={activeUser.id_user}
+                onChange={(e) => handleRoleChange(Number(e.target.value))}
+                className="px-3 py-1.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-bold text-gray-700"
+              >
+                {availableUsers.map(r => (
+                  <option key={r.id_user} value={r.id_user}>
+                    Simulasi: {r.nama_user} ({r.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="h-6 w-px bg-gray-200"></div>
+
+            {/* Logout Header Button */}
+            <button
+              id="header-btn-logout"
+              onClick={handleLogout}
+              className="px-3 py-1.5 rounded-xl border border-rose-200 hover:border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              title="Keluar dari sesi akun saat ini (Logout)"
+            >
+              <LogOut className="h-3.5 w-3.5 text-rose-600" />
+              <span>Keluar (Logout)</span>
+            </button>
           </div>
 
         </header>
@@ -930,7 +1066,17 @@ export default function App() {
           {activeTab === 'account' && (
             <AccountManagement 
               currentUser={activeUser}
-              onUpdateUser={(updatedUser) => setActiveUser(updatedUser)}
+              onUpdateUser={(updatedUser) => {
+                setActiveUser(updatedUser);
+                localStorage.setItem('inv_active_user', JSON.stringify(updatedUser));
+                setUpdateKey(prev => prev + 1);
+              }}
+              onSwitchUser={(targetUser) => {
+                setActiveUser(targetUser);
+                localStorage.setItem('inv_active_user', JSON.stringify(targetUser));
+                setUpdateKey(prev => prev + 1);
+              }}
+              onLogout={handleLogout}
             />
           )}
 
@@ -939,6 +1085,66 @@ export default function App() {
 
 
       </div>
+
+      {/* MODAL KONFIRMASI KELUAR SISTEM (LOGOUT) */}
+      {isLogoutModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-150 space-y-5 animate-scale-in">
+            <div className="text-center space-y-3">
+              <div className="mx-auto h-12 w-12 rounded-2xl bg-rose-50 text-rose-600 border border-rose-150 flex items-center justify-center shadow-xs">
+                <LogOut className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Konfirmasi Keluar Sistem</h3>
+                <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                  Apakah Anda yakin ingin mengakhiri sesi untuk akun <span className="font-bold text-slate-800">{activeUser.nama_user}</span>? Anda perlu masuk kembali untuk mengakses sistem inventaris.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-gray-600 space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 font-medium">Pengguna:</span>
+                <span className="font-bold text-slate-800">@{activeUser.username}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 font-medium">Peran / Hak Akses:</span>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                  activeUser.role === 'Admin' ? 'bg-blue-600 text-white' :
+                  activeUser.role === 'Petugas' ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-white'
+                }`}>
+                  {activeUser.role}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 font-medium">Status Basis Data:</span>
+                <span className="font-semibold text-emerald-600 flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Tersimpan di Cloud SQL
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsLogoutModalOpen(false)}
+                className="px-4 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold text-xs rounded-xl transition"
+              >
+                Batal
+              </button>
+              <button
+                id="btn-confirm-logout"
+                type="button"
+                onClick={handleLogoutConfirm}
+                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center gap-1.5"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Ya, Keluar (Logout)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

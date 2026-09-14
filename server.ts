@@ -6,7 +6,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { db } from './src/db/index.ts';
+import { db, isDatabaseConfigured } from './src/db/index.ts';
 import {
   kategori,
   barang,
@@ -30,6 +30,17 @@ async function startServer() {
   // 1. Connection Status API
   app.get('/api/cloudsql/status', async (req, res) => {
     try {
+      if (!isDatabaseConfigured) {
+        return res.json({
+          status: 'Disconnected',
+          database: 'In-Memory / Local Storage',
+          host: 'Not configured',
+          user: 'Local User',
+          counts: {},
+          message: 'Cloud SQL database is not configured. Running with local storage.',
+        });
+      }
+
       // Test simple query
       const result = await db.execute(sql`SELECT 1 as connected`);
       
@@ -73,6 +84,10 @@ async function startServer() {
   // 2. Export Local Data to Cloud SQL (Sync UP)
   app.post('/api/cloudsql/export', async (req, res) => {
     try {
+      if (!isDatabaseConfigured) {
+        return res.status(503).json({ error: 'Cloud SQL database is not configured.' });
+      }
+
       const data = req.body;
       if (!data) {
         return res.status(400).json({ error: 'Data is required' });
@@ -161,6 +176,10 @@ async function startServer() {
   // 3. Import Data from Cloud SQL to Local State (Sync DOWN)
   app.get('/api/cloudsql/import', async (req, res) => {
     try {
+      if (!isDatabaseConfigured) {
+        return res.status(503).json({ error: 'Cloud SQL database is not configured.' });
+      }
+
       const katRes = await db.select().from(kategori);
       const brgRes = await db.select().from(barang);
       const pmjRes = await db.select().from(peminjam);

@@ -46,6 +46,11 @@ export interface User {
   role: 'Admin' | 'Petugas' | 'Peminjam';
   last_login?: string;
   status: 'Aktif' | 'Nonaktif';
+  email?: string;
+  nomor_telepon?: string;
+  instansi?: string;
+  nip_nik?: string;
+  created_at?: string;
 }
 
 export interface Peminjaman {

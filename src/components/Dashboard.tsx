@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Package, CheckCircle, ArrowUpRight, Users, AlertTriangle, Clock, History, TrendingUp, HelpCircle, Database, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Package, CheckCircle, ArrowUpRight, Users, AlertTriangle, Clock, History, TrendingUp, HelpCircle, Database, RefreshCw, ChevronLeft, ChevronRight, UserCog } from 'lucide-react';
 import { OfficeInventoryDb } from '../dbMock';
 import { Barang, Peminjaman, AuditLog, Peminjam, DetailPeminjaman } from '../types';
 
@@ -211,20 +211,28 @@ export default function Dashboard({
           <h1 className="text-2xl font-bold tracking-tight">Selamat Datang Kembali, {currentUser?.nama_user}!</h1>
           <p className="text-blue-100 mt-1">Sistem Informasi Peminjaman Barang & Inventaris Kantor Direktorat SI. Anda login sebagai <span className="font-semibold px-2 py-0.5 bg-blue-600 rounded text-xs tracking-wide">{currentUser?.role.toUpperCase()}</span></p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button 
             id="quick-pinjam-btn"
-            onClick={() => setActiveTab('peminjaman')}
-            className="px-4 py-2 bg-white text-blue-800 rounded-xl font-medium shadow hover:bg-blue-50 transition text-sm flex items-center gap-1.5"
+            onClick={() => setActiveTab('transaksi')}
+            className="px-3.5 py-2 bg-white text-blue-800 rounded-xl font-medium shadow hover:bg-blue-50 transition text-xs sm:text-sm flex items-center gap-1.5"
           >
             <ArrowUpRight className="h-4 w-4" /> Tambah Peminjaman
           </button>
           <button 
             id="quick-kembali-btn"
             onClick={() => setActiveTab('pengembalian')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-xl font-medium shadow hover:bg-blue-500 transition text-sm flex items-center gap-1.5 border border-blue-500"
+            className="px-3.5 py-2 bg-blue-600 text-white rounded-xl font-medium shadow hover:bg-blue-500 transition text-xs sm:text-sm flex items-center gap-1.5 border border-blue-500"
           >
             <History className="h-4 w-4" /> Catat Pengembalian
+          </button>
+          <button 
+            id="quick-account-btn"
+            onClick={() => setActiveTab('account')}
+            className="px-3.5 py-2 bg-white/15 hover:bg-white/25 text-white rounded-xl font-medium shadow transition text-xs sm:text-sm flex items-center gap-1.5 border border-white/20 backdrop-blur-xs"
+            title="Kelola Akun, Pengguna & Hak Akses"
+          >
+            <UserCog className="h-4 w-4" /> Manajemen Akun Pengguna
           </button>
         </div>
       </div>
